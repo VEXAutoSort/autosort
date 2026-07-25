@@ -1,31 +1,18 @@
 #!/usr/bin/env bash
-# One-shot setup for macOS: system deps, Python venv, LeRobot + HF CLI.
-# Pass --lelab to also install the LeLab browser UI.
-# Usage: ./scripts/install.sh [--lelab]
+# One-shot setup: a Python 3.12 venv + every dependency.
+# Run once:  ./scripts/install.sh
 set -e
 cd "$(dirname "$0")/.."
 
-echo ">> System deps (Homebrew)..."
-brew install python@3.12 git-lfs
-git lfs install
+command -v python3.12 >/dev/null || { echo "Install Python 3.12 first (brew install python@3.12)"; exit 1; }
 
-echo ">> Python venv (.venv)..."
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
-python -c "import lerobot; print('LeRobot OK')"
+pip install -e .
 
-if [ "${1:-}" = "--lelab" ]; then
-  echo ">> LeLab (via uv)..."
-  command -v uv >/dev/null 2>&1 || brew install uv
-  uv tool install git+https://github.com/huggingface/leLab.git
-fi
-
-cat <<'EOF'
-
->> Done. Next steps:
-   source .venv/bin/activate
-   hf auth login
-   cp configs/setup.env.example configs/setup.env   # then edit your ports
-EOF
+echo
+echo "Done. Next:"
+echo "  source .venv/bin/activate"
+echo "  ./scripts/find_ports.sh      # get your USB ports, put them in config.yaml"
+echo "  python run.py --dry-run      # test the whole loop with no hardware"

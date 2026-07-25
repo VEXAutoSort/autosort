@@ -1,123 +1,78 @@
 # AutoSort
 
-Autonomous robotic arm system that sorts small VEX hardware (screws, nuts, standoffs, spacers...) into bins, so no human ever has to again.
+Autonomous sorter for small VEX hardware. An **SO-ARM101** picks one piece from a
+pile and drops it into an enclosure; a camera **classifies** it; a **rotating arm**
+turns to the matching bin and lets it fall in. Repeats until the pile is empty.
 
 **Team 11101B** — Henry, Vihaan, Aditya
 
-**Stack:** SO-ARM101 (leader + follower) · [LeRobot](https://github.com/huggingface/lerobot) · ACT policy · imitation learning from teleop demos
+```
+pile ─▶ SO-ARM101 pick ─▶ enclosure ─▶ classify (Arducam) ─▶ rotating-arm router ─▶ bin
+             ▲                                                                        │
+             └──────────────────────── repeat until empty ◀───────────────────────────┘
+```
 
-## Links
+## Quickstart
 
-- **Website:** [vexautosort.com](https://vexautosort.com)
-- **Research journal:** [Google Doc](https://docs.google.com/document/d/1OEXihUL1jX0aLQL2xZLL2lIpXaZqPyQmFPhNkSJQVyw/edit)
-- **Hugging Face org:** [VEXAutoSort](https://huggingface.co/VEXAutoSort) — datasets and trained policies
+```bash
+./scripts/install.sh          # Python 3.12 venv + all dependencies
+source .venv/bin/activate
+python run.py --dry-run       # runs the whole pipeline with NO hardware (simulated)
+```
 
----
+Then wire up real hardware:
 
-## Repo layout
+```bash
+./scripts/find_ports.sh       # get USB ports -> put them in config.yaml
+# edit config.yaml (ports, poses, bins, camera indices), set run.dry_run: false
+python run.py
+```
+
+That's it — **edit one file (`config.yaml`), run one file (`run.py`)**.
+
+## Configure — everything lives in `config.yaml`
+
+| Section | What you set |
+|---|---|
+| `run` | `continuous` vs `step` mode, `dry_run`, when to give up |
+| `arm` | USB port, ACT policy id, and the scripted `home` / `inspect` / `box_drop` poses |
+| `cameras` | indices for `top`, `wrist`, and the `box` Arducam |
+| `perception` | pile / gripper regions and the empty-pile threshold |
+| `classifier` | model path, the class `labels`, confidence cutoff |
+| `router` | controller port and each label's `bins` angle |
+
+## How "pick exactly one" works
+
+1. The **ACT policy** grasps a piece and lifts to the `inspect` pose.
+2. **Gripper position** says whether it grabbed anything at all (empty grasp → retry).
+3. The **wrist camera** counts pieces in the gripper: `2+` → drop back and retry, `1` → continue.
+4. The **top camera** counts pieces left on the tray; several `0` reads in a row → done.
+
+## Plug in your trained models
+
+- **ACT pick policy** — set `arm.policy` to your Hub id (e.g. `VEXAutoSort/act_pick_v1`).
+- **Classifier** — drop a TorchScript model at `models/classifier.pt` (224×224 RGB → logits over `labels`). Missing model ⇒ everything is labelled `unknown` so the loop still runs.
+- **Router firmware** — the Arduino answers `G<angle>\n` with `OK\n` (see `autosort/router.py`).
+
+## Layout
 
 ```
+config.yaml            # the one config
+run.py                 # the one entry point
 autosort/
-├── requirements.txt         # Python dependencies (lerobot[feetech] + hf hub cli)
-├── configs/
-│   └── setup.env.example    # Template — copy to setup.env, fill in YOUR ports/cameras
-├── scripts/
-│   ├── install.sh           # One-shot setup: deps + venv (+ --lelab)
-│   ├── find_ports.sh        # Find USB ports for the arms
-│   ├── calibrate.sh         # Calibrate an arm (follower | leader)
-│   ├── teleop.sh            # Teleoperate (with camera view)
-│   ├── record.sh            # Record a dataset of demos
-│   ├── merge_datasets.sh    # Merge several datasets into one on the Hub
-│   ├── train.sh             # Train ACT (local, for small tests — use Colab for real runs)
-│   └── rollout.sh           # Run a trained policy on the robot
-├── docs/
-│   ├── data_collection_protocol.md   # READ BEFORE RECORDING ANY DATA
-│   └── lab_notebook.md               # Running log: every session, every training run
-└── notebooks/
-    └── train_act_colab.ipynb   # ACT training on Colab's free GPU
+  config.py            # load + validate config.yaml
+  arm.py               # SO-ARM101: ACT pick + scripted place + gripper feedback
+  perception.py        # blob-count checks: single-grasp + empty-pile
+  classifier.py        # Arducam piece classification
+  router.py            # rotating-arm bin routing (serial)
+  pipeline.py          # the loop that ties it together  (also `python -m autosort.pipeline`)
+scripts/               # install.sh, find_ports.sh
+models/                # trained weights (gitignored)
 ```
 
-## One-time setup (macOS)
+## Status
 
-LeRobot requires **Python 3.12+** and **git-lfs**. One command does everything —
-system deps, a `.venv`, and all Python dependencies from `requirements.txt`:
-
-```bash
-./scripts/install.sh            # add --lelab to also install the LeLab UI
-source .venv/bin/activate
-hf auth login                   # paste a WRITE token
-cp configs/setup.env.example configs/setup.env   # then edit your ports
-```
-
-<details>
-<summary>What that installs / doing it manually</summary>
-
-```bash
-brew install python@3.12 git-lfs && git lfs install
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt          # lerobot[feetech] + huggingface_hub[cli]
-```
-
-`requirements.txt` pulls the full LeRobot pipeline (`lerobot-find-port`,
-`calibrate`, `teleoperate`, `record`, `train`, `rollout`, `edit-dataset`) plus the
-ACT policy and OpenCV camera support.
-</details>
-
-## Every time you work on this
-
-```bash
-source .venv/bin/activate
-```
-
-## First time on a new machine / new location
-
-USB port names change when arms are re-plugged or you switch computers:
-
-```bash
-./scripts/find_ports.sh        # run once per arm, follow the prompts
-```
-
-Then edit `configs/setup.env` with your ports and camera indices.
-
-> **Arm IDs:** the `id` for each arm (e.g. `my_follower`) names its calibration
-> file. Use the SAME ids everywhere on a given machine, or you'll trigger
-> recalibration. They're set once in `configs/setup.env`.
-
-## Calibrate (once per arm on a new machine)
-
-```bash
-./scripts/calibrate.sh follower
-./scripts/calibrate.sh leader
-```
-
-## Usage
-
-```bash
-./scripts/teleop.sh                          # practice driving the arm
-./scripts/record.sh gear_v1 50               # record 50 episodes
-./scripts/record.sh gear_v1 50 "" resume     # add more episodes to an existing dataset
-./scripts/merge_datasets.sh gear_combined \
-    Henry-Wang0225/gear_v1 Henry-Wang0225/gear_v2   # merge datasets
-./scripts/train.sh gear_v1                    # small local test run (slow on Mac)
-./scripts/rollout.sh Henry-Wang0225/act_v1    # deploy a trained policy
-```
-
-## Where training actually happens
-
-Local `train.sh` on a Mac (MPS) is only for sanity checks — it's slow. Do real
-runs one of two ways:
-
-- **LeLab** — a browser UI over LeRobot for recording/training/eval. Install and run:
-  ```bash
-  uv tool install git+https://github.com/huggingface/leLab.git && lelab
-  ```
-- **Google Colab** (free T4 GPU) — see `notebooks/`. Start from LeRobot's official
-  ACT training notebook, point it at `<HF_USER>/<dataset_name>`, push the policy
-  back to the Hub, then `./scripts/rollout.sh <HF_USER>/<policy_name>` locally.
-
-## Rules
-
-1. **Read `docs/data_collection_protocol.md` before recording anything.** Bad data = wasted GPU hours.
-2. **Log every session in `docs/lab_notebook.md`.** Date, what you did, what broke, success rates.
-3. Don't move the cameras or bins mid-dataset. Ever.
+The **structure, control loop, config, and dry-run are complete and runnable.**
+Three integration points are marked as stubs until the trained assets exist: the ACT
+policy preprocessing (`arm.pick`), the classifier weights (`classifier.py`), and the
+router firmware protocol (`router.py`).

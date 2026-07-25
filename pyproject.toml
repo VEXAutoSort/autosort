@@ -1,0 +1,23 @@
+[project]
+name = "autosort"
+version = "0.1.0"
+description = "Autonomous VEX-hardware sorter: SO-ARM101 pick -> camera classify -> rotating-arm bin routing."
+requires-python = ">=3.12"
+dependencies = [
+    "lerobot[feetech]",      # SO-ARM101 control + ACT policy inference
+    "huggingface_hub[cli]",  # pull the trained policy / classifier weights
+    "opencv-python",         # camera capture + classical-CV checks
+    "numpy",
+    "pyyaml",                # config.yaml
+    "pyserial",              # rotating-arm (router) controller over serial
+]
+
+[project.scripts]
+autosort = "autosort.pipeline:main"   # `autosort` behaves like `python run.py`
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["autosort"]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Find the USB port for each arm. Run this once per arm:
-# it will ask you to unplug the arm so it can detect which port disappears.
-set -e
-echo "== LeRobot port finder =="
-echo "Plug in ONE arm at a time. Follow the prompts."
+# Find the USB serial port of a device (the arm, or the router controller).
+# Follow the prompt: unplug it, press Enter, then plug it back in.
+# Put the port it reports into config.yaml (arm.port / router.port).
+cd "$(dirname "$0")/.."
+source .venv/bin/activate 2>/dev/null || true
 lerobot-find-port

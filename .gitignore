@@ -1,23 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
 .venv/
-venv/
+__pycache__/
+*.pyc
+*.pyo
 
-# LeRobot outputs
-outputs/
-wandb/
-*.ckpt
-*.safetensors
+# trained weights live outside git (Hub / local); keep the folder
+models/*
+!models/.gitkeep
 
-# Datasets (these live on the HF Hub, not in git)
-data/
-datasets/
-
-# Local machine config (real ports live here; commit setup.env.example instead)
-configs/setup.env
-
-# OS / editor
 .DS_Store
-.vscode/
-.idea/
