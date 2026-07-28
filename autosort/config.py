@@ -50,6 +50,7 @@ class PerceptionCfg:
     min_piece_area: int
     empty_frames: int
     max_piece_area: int = 10000   # px^2 - ignore blobs bigger than a piece (the drop box, a hand, shadows)
+    contrast_margin: int = 45     # how much darker than the surface a pixel must be to count as piece (shadows are ~15-25)
 
 
 @dataclass

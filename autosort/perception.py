@@ -65,7 +65,13 @@ class Perception:
         crop = frame[oy:int(y1 * h), ox:int(x1 * w)]
         gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY) if crop.ndim == 3 else crop
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # Threshold relative to the background brightness instead of Otsu: Otsu
+        # ALWAYS splits the image, so on an empty crop it promotes soft shadows
+        # into phantom pieces. Real pieces are far darker than the surface;
+        # anything within contrast_margin of the median is background/shadow.
+        bg = float(np.median(gray))
+        thr = max(1.0, bg - self.cfg.contrast_margin)
+        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         out = []
