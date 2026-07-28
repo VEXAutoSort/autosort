@@ -1,12 +1,20 @@
-"""SO-ARM101 follower: ACT pick + scripted place, with gripper feedback.
+"""SO-ARM101 follower with two interchangeable pick backends.
 
-Split of responsibility:
-  - the ACT policy does the hard part — grasp ONE piece from the pile and lift it.
-  - everything after (move to the box, release) is scripted from fixed joint
-    poses, because a fixed target doesn't need a learned policy.
+  pick_mode: classical  — detect the piece from the top camera while the arm is
+      at home (clear view), blend hand-taught grid poses into a grasp, execute a
+      scripted hover -> descend -> close -> lift. No trained model. Teach once
+      with tools/teach.py.
 
-Heavy imports (lerobot, torch) are loaded lazily inside connect()/pick() so the
-rest of the system — and dry-run mode — work without them installed.
+  pick_mode: act        — run a trained ACT policy for the grasp (experimental
+      until a pick-from-pile policy is trained). Observations go through the
+      policy's own pre/post processor pipelines — required in lerobot >= 0.6,
+      raw observations are NOT accepted by select_action.
+
+Everything after the grasp (inspect, box drop, home) is scripted from taught
+poses for both modes, and every scripted move is interpolated (motion.py) so
+the arm never lurches.
+
+Heavy imports (lerobot, torch) stay lazy so dry-run works without them.
 """
 from __future__ import annotations
 
@@ -15,10 +23,10 @@ import time
 from typing import Any
 
 from .config import ArmCfg, CameraCfg
+from .motion import JOINTS, move_smooth, read_joints
+from .taught import Taught
 
 log = logging.getLogger("autosort.arm")
-
-JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 
 
 class Arm:
@@ -28,31 +36,52 @@ class Arm:
         self.dry_run = dry_run
         self.robot = None
         self.policy = None
+        self.preprocessor = None
+        self.postprocessor = None
+        self.taught: Taught | None = None
 
     # --- lifecycle ----------------------------------------------------
     def connect(self) -> None:
+        if not self.dry_run:
+            self.taught = Taught.load(self.cfg.taught_file)
         if self.dry_run:
-            log.info("[dry-run] arm connected")
+            log.info("[dry-run] arm connected (pick_mode=%s)", self.cfg.pick_mode)
             return
         try:
             from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
-        except ImportError:  # older layout
-            from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
-        from lerobot.cameras.opencv import OpenCVCameraConfig
-        from lerobot.policies.act.modeling_act import ACTPolicy
+        except ImportError:  # 0.6.x layout
+            from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
+            from lerobot.robots.so_follower.so_follower import SOFollower as SO101Follower
+        from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
         cams = {
             name: OpenCVCameraConfig(index_or_path=c.index, width=c.width, height=c.height, fps=c.fps)
             for name, c in self.cameras.items()
-            if name in ("top", "wrist")  # only policy cameras go on the robot
+            if name in ("top", "wrist")  # only arm cameras; 'box' belongs to the classifier
         }
         self.robot = SO101Follower(
             SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
         )
-        self.robot.connect()
+        self.robot.connect(calibrate=False)
+        if self.cfg.pick_mode == "act":
+            self._load_policy()
+        log.info("arm connected on %s (pick_mode=%s)", self.cfg.port, self.cfg.pick_mode)
+
+    def _load_policy(self) -> None:
+        """ACT policy + its processor pipelines (normalization lives there, not in the policy)."""
+        from lerobot.policies.act.modeling_act import ACTPolicy
+        from lerobot.policies.factory import make_pre_post_processors
+
         self.policy = ACTPolicy.from_pretrained(self.cfg.policy)
+        self.policy.config.device = self.cfg.device
+        self.policy.to(self.cfg.device)
         self.policy.eval()
-        log.info("arm connected on %s (policy=%s)", self.cfg.port, self.cfg.policy)
+        self.preprocessor, self.postprocessor = make_pre_post_processors(
+            self.policy.config,
+            pretrained_path=self.cfg.policy,
+            preprocessor_overrides={"device_processor": {"device": self.cfg.device}},
+        )
+        log.info("ACT policy loaded: %s on %s", self.cfg.policy, self.cfg.device)
 
     def disconnect(self) -> None:
         if self.robot is not None:
@@ -63,53 +92,103 @@ class Arm:
         return {} if self.dry_run else self.robot.get_observation()
 
     def frame(self, name: str):
-        """Latest image from a policy camera ('top' or 'wrist'); None in dry-run."""
+        """Latest image from an arm camera ('top' or 'wrist'); None in dry-run."""
         return self.observe().get(name)
 
     def gripper_pos(self) -> float:
-        return 50.0 if self.dry_run else float(self.observe().get("gripper.pos", 0.0))
+        return 50.0 if self.dry_run else read_joints(self.robot)["gripper"]
 
     def gripper_holding(self) -> bool:
-        """True if the gripper stopped on something; False if it closed on nothing."""
-        return self.gripper_pos() > self.cfg.gripper_empty_pos
+        """True if the gripper stopped short of fully closed — i.e. on a piece.
 
-    # --- motions ------------------------------------------------------
-    def pick(self) -> None:
-        """Run the ACT policy for one grasp, then hold at the 'inspect' pose."""
+        We command the taught closed position; if a piece blocks the fingers the
+        present position stays at least `gripper_holding_margin` away from it.
+        """
         if self.dry_run:
-            log.info("[dry-run] pick()")
+            return True
+        gap = abs(self.gripper_pos() - self.taught.gripper_closed)
+        return gap > self.cfg.gripper_holding_margin
+
+    # --- pick backends ------------------------------------------------
+    def pick(self, target_px: tuple[float, float] | None = None) -> None:
+        """Grasp one piece, end holding at the 'inspect' pose."""
+        if self.dry_run:
+            log.info("[dry-run] pick(%s)", target_px)
             return
+        if self.cfg.pick_mode == "classical":
+            self._pick_classical(target_px)
+        else:
+            self._pick_act()
+        self.move_to("inspect")  # standardize the pose for the single-piece check
+
+    def _pick_classical(self, target_px: tuple[float, float] | None) -> None:
+        if target_px is None:
+            log.warning("classical pick called with no target — skipping")
+            return
+        grasp = self.taught.grasp_for_pixel(*target_px)
+        hover = self.taught.hover_for(grasp)
+        open_g, closed_g = self.taught.gripper_open, self.taught.gripper_closed
+
+        move_smooth(self.robot, {**hover, "gripper": open_g}, duration_s=1.3)
+        move_smooth(self.robot, {**grasp, "gripper": open_g}, duration_s=0.9)
+        move_smooth(self.robot, {**grasp, "gripper": closed_g}, duration_s=0.5)
+        time.sleep(0.2)
+        move_smooth(self.robot, {**hover, "gripper": closed_g}, duration_s=0.9)
+
+    def _pick_act(self) -> None:
         import torch
 
         self.policy.reset()
+        period = 1.0 / self.cfg.act_fps
         t0 = time.time()
         while time.time() - t0 < self.cfg.pick_timeout_s:
-            obs = self.robot.get_observation()
+            t_step = time.time()
+            obs = self._policy_observation()
+            batch = self.preprocessor(obs)
             with torch.no_grad():
-                # NOTE: some LeRobot versions need make_pre_post_processors() around
-                # this call — wire your policy's preprocessing here if select_action
-                # doesn't accept the raw observation dict.
-                action = self.policy.select_action(obs)
+                action_t = self.policy.select_action(batch)
+            action_t = self.postprocessor(action_t)
+            action = {f"{j}.pos": float(action_t[0][i]) for i, j in enumerate(JOINTS)}
             self.robot.send_action(action)
-        self.move_to("inspect")  # standardize the pose for the single-piece check
+            time.sleep(max(0.0, period - (time.time() - t_step)))
 
+    def _policy_observation(self) -> dict[str, Any]:
+        """Robot observation -> the keys the trained policy expects.
+
+        Camera names on the robot ('top'/'wrist') rarely match the dataset's
+        camera keys (e.g. 'Top view'); arm.policy_camera_names maps them.
+        """
+        import numpy as np
+
+        raw = self.robot.get_observation()
+        obs: dict[str, Any] = {}
+        state = [raw[f"{j}.pos"] for j in JOINTS]
+        obs["observation.state"] = np.asarray(state, dtype=np.float32)
+        for robot_name, dataset_name in self.cfg.policy_camera_names.items():
+            obs[f"observation.images.{dataset_name}"] = raw[robot_name]
+        return obs
+
+    # --- scripted motions ---------------------------------------------
     def place_in_box(self) -> None:
-        """Carry the held piece to the enclosure and release it."""
+        """Carry the held piece to the enclosure/box and release it."""
         if self.dry_run:
             log.info("[dry-run] place_in_box()")
             return
-        self.move_to("box_drop")
-        self._set_gripper(open_=True)
+        closed = self.taught.gripper_closed
+        pose = self.taught.poses["box_drop"]
+        move_smooth(self.robot, {**pose, "gripper": closed}, duration_s=1.5)
+        move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_open}, duration_s=0.4)
         time.sleep(0.4)
-        self.move_to("home")
+        self.home()
 
     def drop_back(self) -> None:
         """Release a multi-grab back over the pile."""
         if self.dry_run:
             log.info("[dry-run] drop_back()")
             return
-        self.move_to("home")
-        self._set_gripper(open_=True)
+        pose = self.taught.poses["home"]
+        move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_closed}, duration_s=1.2)
+        move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_open}, duration_s=0.4)
         time.sleep(0.3)
 
     def home(self) -> None:
@@ -118,11 +197,10 @@ class Arm:
             return
         self.move_to("home")
 
-    # --- low level ----------------------------------------------------
     def move_to(self, pose_name: str) -> None:
-        target = self.cfg.poses[pose_name]
-        self.robot.send_action({f"{j}.pos": float(target[j]) for j in JOINTS if j in target})
-        time.sleep(0.6)  # let the move settle
-
-    def _set_gripper(self, open_: bool) -> None:
-        self.robot.send_action({"gripper.pos": 100.0 if open_ else 0.0})
+        """Move to a taught pose (falls back to config.yaml poses if not taught)."""
+        if self.taught and pose_name in self.taught.poses:
+            target = self.taught.poses[pose_name]
+        else:
+            target = self.cfg.poses[pose_name]
+        move_smooth(self.robot, target, duration_s=1.4)

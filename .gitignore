@@ -8,3 +8,6 @@ models/*
 !models/.gitkeep
 
 .DS_Store
+taught.json
+cameras_override.json
+.venv/

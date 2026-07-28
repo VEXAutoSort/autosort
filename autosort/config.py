@@ -34,8 +34,12 @@ class ArmCfg:
     device: str
     policy: str
     pick_timeout_s: float
-    gripper_empty_pos: float
     poses: dict[str, dict[str, float]]
+    pick_mode: str = "classical"              # classical | act
+    taught_file: str | None = None            # taught.json path (None = repo root)
+    gripper_holding_margin: float = 4.0       # deg short of taught-closed that means "holding a piece"
+    act_fps: float = 30.0                     # control rate for the ACT pick loop
+    policy_camera_names: dict[str, str] | None = None  # robot cam name -> dataset camera key
 
 
 @dataclass
@@ -52,6 +56,7 @@ class ClassifierCfg:
     labels: list[str]
     min_confidence: float
     settle_s: float
+    enabled: bool = True    # false = hardware not built yet; label everything 'unknown'
 
 
 @dataclass
@@ -60,6 +65,7 @@ class RouterCfg:
     baud: int
     drop_dwell_s: float
     bins: dict[str, float]
+    enabled: bool = True    # false = hardware not built yet; log the routing decision only
 
 
 @dataclass
@@ -80,6 +86,15 @@ class Config:
             raise FileNotFoundError(f"Config not found: {p}")
         raw: dict[str, Any] = yaml.safe_load(p.read_text())
 
+        # tools/select_cameras.py writes camera indices here so nobody hand-edits
+        # (macOS shuffles USB camera numbering between reboots/replugs)
+        override = p.parent / "cameras_override.json"
+        if override.exists():
+            import json
+            for name, idx in json.loads(override.read_text()).items():
+                if name in raw.get("cameras", {}):
+                    raw["cameras"][name]["index"] = idx
+
         cfg = Config(
             run=RunCfg(**raw.get("run", {})),
             arm=ArmCfg(**raw["arm"]),
@@ -94,10 +109,14 @@ class Config:
     def validate(self) -> None:
         if self.run.mode not in ("continuous", "step"):
             raise ValueError("run.mode must be 'continuous' or 'step'")
-        # every class label must have a bin, or a piece could be unroutable mid-run
-        missing = [lbl for lbl in self.classifier.labels if lbl not in self.router.bins]
-        if missing:
-            raise ValueError(f"These labels have no router.bins angle: {missing}")
-        for name in ("top", "wrist", "box"):
+        if self.arm.pick_mode not in ("classical", "act"):
+            raise ValueError("arm.pick_mode must be 'classical' or 'act'")
+        if self.router.enabled:
+            # every class label must have a bin, or a piece could be unroutable mid-run
+            missing = [lbl for lbl in self.classifier.labels if lbl not in self.router.bins]
+            if missing:
+                raise ValueError(f"These labels have no router.bins angle: {missing}")
+        required_cams = ("top", "wrist", "box") if self.classifier.enabled else ("top", "wrist")
+        for name in required_cams:
             if name not in self.cameras:
                 raise ValueError(f"cameras.{name} is required")

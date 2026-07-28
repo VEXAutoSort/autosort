@@ -6,48 +6,60 @@
 
 # --- Run behaviour -------------------------------------------
 run:
-  mode: continuous          # continuous | step   (step = wait for Enter between pieces)
+  mode: step                # continuous | step   (step = wait for Enter between pieces; use step for first sessions)
   dry_run: true             # true = simulate everything (no arm/cameras/models needed)
   max_consecutive_fails: 8  # give up after this many failed picks in a row
 
-# --- SO-ARM101 follower + ACT pick policy --------------------
+# --- SO-ARM101 follower --------------------------------------
 arm:
-  port: /dev/tty.usbmodemCHANGE_ME_ARM     # find with scripts/find_ports.sh
-  id: autosort_follower                     # names the calibration file — keep it stable
+  port: /dev/tty.usbmodem5A7A0587411        # find with scripts/find_ports.sh
+  id: so-arm101                             # names the calibration file — matches the existing LeLab calibration
   device: mps                               # mps (Apple Silicon) | cuda | cpu
-  policy: VEXAutoSort/act_pick_v1           # HF hub id or local path of the trained ACT pick policy
+  pick_mode: classical                      # classical (taught poses, no model) | act (experimental)
+  taught_file: null                         # null = taught.json in repo root (created by tools/teach.py)
+  gripper_holding_margin: 4.0               # deg away from taught-closed that still counts as "holding a piece"
+
+  # --- act mode only (ignored in classical mode) ---
+  policy: VEXAutoSort/act_pick_v1           # HF hub id of a trained pick policy (does not exist yet)
   pick_timeout_s: 20                        # max seconds for one ACT pick attempt
-  gripper_empty_pos: 5.0                    # gripper % below which it closed on nothing
-  poses:                                    # scripted joint targets in degrees (read them off during teleop)
+  act_fps: 30                               # ACT control-loop rate
+  policy_camera_names:                      # robot camera name -> dataset camera key (spaces matter!)
+    top: "Top view"
+    wrist: "wrist camera"
+
+  poses:                                    # FALLBACK poses if taught.json is missing — teaching overrides these
     home:     {shoulder_pan: 0,  shoulder_lift: -100, elbow_flex: 100, wrist_flex: 40, wrist_roll: 0, gripper: 50}
     inspect:  {shoulder_pan: 0,  shoulder_lift: -60,  elbow_flex: 60,  wrist_flex: 0,  wrist_roll: 0, gripper: 30}
     box_drop: {shoulder_pan: 90, shoulder_lift: -40,  elbow_flex: 50,  wrist_flex: 20, wrist_roll: 0, gripper: 30}
 
 # --- Cameras -------------------------------------------------
-# 'top' + 'wrist' feed the ACT policy AND our checks (registered on the arm).
-# 'box' is the Arducam inside the classification enclosure (opened separately).
+# Indices are managed by tools/select_cameras.py (writes cameras_override.json)
+# because macOS shuffles USB camera numbering. Don't hand-edit indices.
+# Add a 'box' camera entry once the classification enclosure is built.
 cameras:
   top:   {index: 0, width: 960, height: 600, fps: 30}
   wrist: {index: 1, width: 640, height: 480, fps: 30}
-  box:   {index: 2, width: 640, height: 480, fps: 30}
 
 # --- Perception (classical CV — no training needed) ----------
+# Assumes LIGHT surface with DARKER pieces (team decision 2026-07).
 perception:
   pile_roi: [0.1, 0.1, 0.9, 0.9]     # [x0,y0,x1,y1] fraction of the TOP frame covering the pile
   gripper_roi: [0.3, 0.3, 0.7, 0.9]  # region of the WRIST frame where a held piece shows up
   min_piece_area: 300                # px^2 — ignore specks smaller than this
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
 
-# --- Classifier (Arducam in the box) -------------------------
+# --- Classifier (enclosure not built yet) --------------------
 classifier:
+  enabled: false                     # flip to true once the box + its camera exist
   model: models/classifier.pt        # TorchScript classifier (missing -> everything is 'unknown')
   labels: [gear, standoff, screw, nut, spacer, unknown]
   min_confidence: 0.6                # below this -> route to the 'unknown' bin
   settle_s: 0.5                      # wait after the drop before imaging
 
-# --- Router — the rotating arm that drops into the bins ------
+# --- Router (rotating arm not built yet) ---------------------
 router:
-  port: /dev/tty.usbmodemCHANGE_ME_ROUTER   # Arduino / servo controller serial port
+  enabled: false                     # flip to true once the Arduino rotating arm exists
+  port: /dev/tty.usbmodemCHANGE_ME_ROUTER
   baud: 115200
   drop_dwell_s: 1.0                  # hold at the bin while the piece falls
   bins:                              # label -> rotation angle (deg). 'unknown' = reject bin.

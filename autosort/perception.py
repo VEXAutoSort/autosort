@@ -31,21 +31,53 @@ class Perception:
     def pieces_in_gripper(self, wrist_frame) -> int:
         if self.dry_run:
             return 1
-        return self._count_blobs(wrist_frame, self.cfg.gripper_roi)
+        return len(self._blobs(wrist_frame, self.cfg.gripper_roi))
 
-    # --- shared blob counter -----------------------------------------
-    def _count_blobs(self, frame, roi) -> int:
+    def largest_piece_px(self, top_frame) -> tuple[float, float] | None:
+        """Full-frame pixel centroid of the biggest piece in the pile ROI.
+
+        This is the classical pick target: detection happens while the arm is
+        at home (view unobstructed), so the arm never occludes what it measures.
+        """
+        if self.dry_run:
+            return (480.0, 300.0)
+        blobs = self._blobs(top_frame, self.cfg.pile_roi)
+        if not blobs:
+            return None
+        area, cx, cy = max(blobs)
+        return (cx, cy)
+
+    # --- shared blob detector ----------------------------------------
+    def _blobs(self, frame, roi) -> list[tuple[float, float, float]]:
+        """Pieces in `roi` as (area, cx, cy) with centroids in FULL-frame pixels.
+
+        Assumes pieces darker than a light background (per config decision).
+        If your surface is dark and pieces are light, drop THRESH_BINARY_INV.
+        """
         import cv2
         import numpy as np
 
         if frame is None:
-            return 0
+            return []
         h, w = frame.shape[:2]
         x0, y0, x1, y1 = roi
-        crop = frame[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+        ox, oy = int(x0 * w), int(y0 * h)
+        crop = frame[oy:int(y1 * h), ox:int(x1 * w)]
         gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY) if crop.ndim == 3 else crop
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return sum(1 for c in contours if cv2.contourArea(c) >= self.cfg.min_piece_area)
+        out = []
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < self.cfg.min_piece_area:
+                continue
+            m = cv2.moments(c)
+            if m["m00"] == 0:
+                continue
+            out.append((area, ox + m["m10"] / m["m00"], oy + m["m01"] / m["m00"]))
+        return out
+
+    def _count_blobs(self, frame, roi) -> int:
+        return len(self._blobs(frame, roi))

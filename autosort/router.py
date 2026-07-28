@@ -21,7 +21,9 @@ class Router:
         self._ser = None
 
     def connect(self) -> None:
-        if self.dry_run:
+        if self.dry_run or not self.cfg.enabled:
+            if not self.cfg.enabled:
+                log.info("router disabled (no rotating arm yet) — routing decisions will be logged only")
             return
         import serial
 
@@ -31,13 +33,13 @@ class Router:
     def route_to(self, label: str) -> None:
         angle = self.cfg.bins.get(label, self.cfg.bins["unknown"])
         log.info("route '%s' -> %.0f deg", label, angle)
-        if self.dry_run:
+        if self.dry_run or not self.cfg.enabled:
             return
         self._command(f"G{angle:.0f}")
         time.sleep(self.cfg.drop_dwell_s)  # hold while the piece falls into the bin
 
     def home(self) -> None:
-        if self.dry_run:
+        if self.dry_run or not self.cfg.enabled:
             return
         self._command("G0")
 

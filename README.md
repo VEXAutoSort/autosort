@@ -12,67 +12,108 @@ pile ─▶ SO-ARM101 pick ─▶ enclosure ─▶ classify (Arducam) ─▶ rot
              └──────────────────────── repeat until empty ◀───────────────────────────┘
 ```
 
-## Quickstart
+Components that aren't built yet (enclosure camera, router arm) are disabled in
+`config.yaml` — the pipeline runs end-to-end regardless and logs what it *would*
+have done. Flip their `enabled` flags as hardware comes online.
+
+## Two pick modes
+
+| `arm.pick_mode` | How it grasps | Needs |
+|---|---|---|
+| `classical` (default) | Detects the piece from the top camera while the arm is at home (clear view), blends 9 hand-taught poses into a grasp, scripted motion. | 15-min one-time teach session, no training |
+| `act` (experimental) | Trained ACT policy drives the grasp. | A trained pick policy on the Hub |
+
+Everything after the grasp (inspect, box drop, home) is scripted from taught
+poses in both modes, with interpolated (speed-limited) motion throughout.
+
+## Quickstart — no hardware
 
 ```bash
-./scripts/install.sh          # Python 3.12 venv + all dependencies
-source .venv/bin/activate
-python run.py --dry-run       # runs the whole pipeline with NO hardware (simulated)
+./scripts/install.sh
 ```
 
-Then wire up real hardware:
+```bash
+source .venv/bin/activate
+```
 
 ```bash
-./scripts/find_ports.sh       # get USB ports -> put them in config.yaml
-# edit config.yaml (ports, poses, bins, camera indices), set run.dry_run: false
+python run.py --dry-run
+```
+
+That simulates the entire loop (fake pile drains over ~6 cycles).
+
+## Real hardware, first session
+
+Do these once, in order, with the arm and both cameras plugged in and no other
+app (LeLab!) holding them:
+
+1. Find the arm's serial port and put it in `config.yaml` under `arm.port`:
+
+```bash
+./scripts/find_ports.sh
+```
+
+2. Assign cameras by looking at them (never hand-edit indices — macOS shuffles
+   them). A window shows each camera; press T for the top view, W for wrist:
+
+```bash
+python tools/select_cameras.py
+```
+
+3. Teach the poses by physically moving the arm (torque releases; ~15 min).
+   Follow the on-screen key prompts — 9 grid points over the pile zone, hover,
+   home, inspect, box drop, gripper open/closed:
+
+```bash
+python tools/teach.py
+```
+
+4. Set `run.dry_run: false` in `config.yaml`, put ONE piece in the pile zone,
+   keep a hand near the power switch, and run:
+
+```bash
 python run.py
 ```
 
-That's it — **edit one file (`config.yaml`), run one file (`run.py`)**.
+`run.mode: step` (the default) waits for Enter between pieces — right for the
+first sessions. Switch to `continuous` when it's boring.
 
 ## Configure — everything lives in `config.yaml`
 
 | Section | What you set |
 |---|---|
 | `run` | `continuous` vs `step` mode, `dry_run`, when to give up |
-| `arm` | USB port, ACT policy id, and the scripted `home` / `inspect` / `box_drop` poses |
-| `cameras` | indices for `top`, `wrist`, and the `box` Arducam |
-| `perception` | pile / gripper regions and the empty-pile threshold |
-| `classifier` | model path, the class `labels`, confidence cutoff |
-| `router` | controller port and each label's `bins` angle |
+| `arm` | port, `pick_mode`, taught-pose file, ACT policy id (act mode) |
+| `cameras` | resolutions; indices come from `tools/select_cameras.py` |
+| `perception` | pile / gripper regions, empty-pile threshold (assumes light surface, darker pieces) |
+| `classifier` | `enabled`, model path, class `labels`, confidence cutoff |
+| `router` | `enabled`, controller port, each label's bin angle |
 
 ## How "pick exactly one" works
 
-1. The **ACT policy** grasps a piece and lifts to the `inspect` pose.
+1. The pick (classical or ACT) grasps a piece and lifts to the `inspect` pose.
 2. **Gripper position** says whether it grabbed anything at all (empty grasp → retry).
 3. The **wrist camera** counts pieces in the gripper: `2+` → drop back and retry, `1` → continue.
-4. The **top camera** counts pieces left on the tray; several `0` reads in a row → done.
+4. The **top camera** counts pieces left in the zone; several `0` reads in a row → done.
 
-## Plug in your trained models
+## Plug in trained models (when ready)
 
-- **ACT pick policy** — set `arm.policy` to your Hub id (e.g. `VEXAutoSort/act_pick_v1`).
-- **Classifier** — drop a TorchScript model at `models/classifier.pt` (224×224 RGB → logits over `labels`). Missing model ⇒ everything is labelled `unknown` so the loop still runs.
-- **Router firmware** — the Arduino answers `G<angle>\n` with `OK\n` (see `autosort/router.py`).
+- **ACT pick policy** — train one, set `arm.policy`, set `arm.pick_mode: act`.
+  The observation/processor plumbing (lerobot 0.6 pipelines, camera-name
+  mapping) is already wired in `autosort/arm.py`.
+- **Classifier** — drop a TorchScript model at `models/classifier.pt`
+  (224×224 RGB → logits over `labels`), set `classifier.enabled: true`, add a
+  `box` camera entry. Missing model ⇒ everything is labelled `unknown`.
+- **Router firmware** — the Arduino answers `G<angle>\n` with `OK\n`
+  (see `autosort/router.py`), then set `router.enabled: true`.
 
 ## Layout
 
 ```
 config.yaml            # the one config
-run.py                 # the one entry point
-autosort/
-  config.py            # load + validate config.yaml
-  arm.py               # SO-ARM101: ACT pick + scripted place + gripper feedback
-  perception.py        # blob-count checks: single-grasp + empty-pile
-  classifier.py        # Arducam piece classification
-  router.py            # rotating-arm bin routing (serial)
-  pipeline.py          # the loop that ties it together  (also `python -m autosort.pipeline`)
+taught.json            # created by tools/teach.py (poses live here, not in code)
+run.py                 # entry point
+autosort/              # pipeline, arm (two pick backends), perception, classifier, router, motion, taught
+tools/                 # select_cameras.py, teach.py
 scripts/               # install.sh, find_ports.sh
-models/                # trained weights (gitignored)
 ```
-
-## Status
-
-The **structure, control loop, config, and dry-run are complete and runnable.**
-Three integration points are marked as stubs until the trained assets exist: the ACT
-policy preprocessing (`arm.pick`), the classifier weights (`classifier.py`), and the
-router firmware protocol (`router.py`).

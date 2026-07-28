@@ -17,7 +17,7 @@ log = logging.getLogger("autosort.classifier")
 
 
 class Classifier:
-    def __init__(self, cfg: ClassifierCfg, box_cam: CameraCfg, dry_run: bool = False):
+    def __init__(self, cfg: ClassifierCfg, box_cam: CameraCfg | None, dry_run: bool = False):
         self.cfg = cfg
         self.box_cam = box_cam
         self.dry_run = dry_run
@@ -25,7 +25,11 @@ class Classifier:
         self._model = None
 
     def connect(self) -> None:
-        if self.dry_run:
+        if self.cfg.enabled and self.box_cam is None:
+            raise ValueError("classifier.enabled is true but cameras.box is not configured")
+        if self.dry_run or not self.cfg.enabled:
+            if not self.cfg.enabled:
+                log.info("classifier disabled (no enclosure hardware yet) — everything routes as 'unknown'")
             return
         import cv2
 
@@ -44,6 +48,8 @@ class Classifier:
 
     def classify(self) -> tuple[str, float]:
         """Grab a frame from the box cam and return (label, confidence)."""
+        if not self.cfg.enabled:
+            return "unknown", 0.0
         time.sleep(self.cfg.settle_s)  # let the piece settle after the drop
         if self.dry_run:
             return random.choice(self.cfg.labels), 0.99

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Autonomous VEX-hardware sorter: SO-ARM101 pick -> camera classify -> rotating-arm bin routing."
 requires-python = ">=3.12"
 dependencies = [
-    "lerobot[feetech]",      # SO-ARM101 control + ACT policy inference
+    "lerobot[feetech]==0.6.0",  # SO-ARM101 control + ACT policy inference (pin: matches our trained models + APIs)
     "huggingface_hub[cli]",  # pull the trained policy / classifier weights
     "opencv-python",         # camera capture + classical-CV checks
     "numpy",

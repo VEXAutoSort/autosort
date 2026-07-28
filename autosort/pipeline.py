@@ -26,7 +26,7 @@ class Pipeline:
         dry = cfg.run.dry_run
         self.arm = Arm(cfg.arm, cfg.cameras, dry)
         self.perception = Perception(cfg.perception, dry)
-        self.classifier = Classifier(cfg.classifier, cfg.cameras["box"], dry)
+        self.classifier = Classifier(cfg.classifier, cfg.cameras.get("box"), dry)
         self.router = Router(cfg.router, dry)
 
     def setup(self) -> None:
@@ -55,8 +55,15 @@ class Pipeline:
                     log.warning("%d failed picks in a row — stopping.", fails)
                     break
 
-                # 2. pick one, then confirm it really is exactly one
-                self.arm.pick()
+                # 2. pick one, then confirm it really is exactly one.
+                # Target is measured NOW, while the arm is at home and the view
+                # of the pile is unobstructed (classical mode uses it; ACT ignores it).
+                target_px = self.perception.largest_piece_px(self.arm.frame("top"))
+                if target_px is None and not self.cfg.run.dry_run:
+                    log.info("no pick target found — retrying")
+                    fails += 1
+                    continue
+                self.arm.pick(target_px)
                 if not self.arm.gripper_holding():
                     log.info("empty grasp — retrying")
                     fails += 1
