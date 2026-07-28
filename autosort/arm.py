@@ -62,7 +62,20 @@ class Arm:
         self.robot = SO101Follower(
             SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
         )
-        self.robot.connect(calibrate=False)
+        # the servo bus occasionally corrupts a packet; retry instead of dying
+        for attempt in range(4):
+            try:
+                self.robot.connect(calibrate=False)
+                break
+            except ConnectionError as e:
+                if attempt == 3:
+                    raise
+                log.warning("bus glitch on connect (%s); retrying in 2s [%d/3]", e, attempt + 1)
+                try:
+                    self.robot.bus.disconnect()
+                except Exception:
+                    pass
+                time.sleep(2)
         if self.cfg.pick_mode == "act":
             self._load_policy()
         log.info("arm connected on %s (pick_mode=%s)", self.cfg.port, self.cfg.pick_mode)
@@ -99,15 +112,27 @@ class Arm:
         return 50.0 if self.dry_run else read_joints(self.robot)["gripper"]
 
     def gripper_holding(self) -> bool:
-        """True if the gripper stopped short of fully closed — i.e. on a piece.
+        """True if the fingers stalled ABOVE the commanded closed position.
 
-        We command the taught closed position; if a piece blocks the fingers the
-        present position stays at least `gripper_holding_margin` away from it.
+        NOTE: pieces with holes/spokes (gears!) can swallow the fingertips, so a
+        real hold can read near-closed. The pipeline therefore treats the wrist
+        camera as the deciding vote — this check alone is advisory.
         """
         if self.dry_run:
             return True
-        gap = abs(self.gripper_pos() - self.taught.gripper_closed)
-        return gap > self.cfg.gripper_holding_margin
+        pos = self.gripper_pos()
+        gap = pos - self.taught.gripper_closed
+        holding = gap > self.cfg.gripper_holding_margin
+        log.info("grip check: present=%.1f commanded=%.1f gap=%.1f margin=%.1f -> %s",
+                 pos, self.taught.gripper_closed, gap, self.cfg.gripper_holding_margin,
+                 "holding" if holding else "empty")
+        return holding
+
+    def open_gripper(self) -> None:
+        """Park the fingers at the approach width so picks start pre-opened."""
+        if self.dry_run:
+            return
+        move_smooth(self.robot, {"gripper": self.taught.gripper_open}, duration_s=0.4)
 
     # --- pick backends ------------------------------------------------
     def pick(self, target_px: tuple[float, float] | None = None) -> None:
@@ -126,13 +151,18 @@ class Arm:
             log.warning("classical pick called with no target — skipping")
             return
         grasp = self.taught.grasp_for_pixel(*target_px)
+        for joint, delta in (self.cfg.pick_joint_offsets or {}).items():
+            grasp[joint] = grasp.get(joint, 0.0) + delta
         hover = self.taught.hover_for(grasp)
         open_g, closed_g = self.taught.gripper_open, self.taught.gripper_closed
 
+        # set the gripper width FIRST, in place, so it stays constant through
+        # the whole approach instead of interpolating from wherever it was
+        move_smooth(self.robot, {"gripper": open_g}, duration_s=0.4)
         move_smooth(self.robot, {**hover, "gripper": open_g}, duration_s=1.3)
         move_smooth(self.robot, {**grasp, "gripper": open_g}, duration_s=0.9)
         move_smooth(self.robot, {**grasp, "gripper": closed_g}, duration_s=0.5)
-        time.sleep(0.2)
+        time.sleep(0.3)
         move_smooth(self.robot, {**hover, "gripper": closed_g}, duration_s=0.9)
 
     def _pick_act(self) -> None:
@@ -198,9 +228,15 @@ class Arm:
         self.move_to("home")
 
     def move_to(self, pose_name: str) -> None:
-        """Move to a taught pose (falls back to config.yaml poses if not taught)."""
+        """Move to a taught pose (falls back to config.yaml poses if not taught).
+
+        The gripper is deliberately EXCLUDED: named poses only position the arm,
+        and the fingers hold their current width. Gripper changes happen only in
+        the explicit pick/place steps, so the width never drifts mid-travel.
+        """
         if self.taught and pose_name in self.taught.poses:
             target = self.taught.poses[pose_name]
         else:
             target = self.cfg.poses[pose_name]
+        target = {k: v for k, v in target.items() if k != "gripper"}
         move_smooth(self.robot, target, duration_s=1.4)

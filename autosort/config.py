@@ -38,6 +38,7 @@ class ArmCfg:
     pick_mode: str = "classical"              # classical | act
     taught_file: str | None = None            # taught.json path (None = repo root)
     gripper_holding_margin: float = 4.0       # deg short of taught-closed that means "holding a piece"
+    pick_joint_offsets: dict[str, float] | None = None  # global reach correction, deg added to every computed grasp
     act_fps: float = 30.0                     # control rate for the ACT pick loop
     policy_camera_names: dict[str, str] | None = None  # robot cam name -> dataset camera key
 
@@ -48,6 +49,7 @@ class PerceptionCfg:
     gripper_roi: list[float]
     min_piece_area: int
     empty_frames: int
+    max_piece_area: int = 10000   # px^2 - ignore blobs bigger than a piece (the drop box, a hand, shadows)
 
 
 @dataclass

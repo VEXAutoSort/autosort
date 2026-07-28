@@ -34,6 +34,7 @@ class Pipeline:
         self.classifier.connect()
         self.router.connect()
         self.arm.home()
+        self.arm.open_gripper() if hasattr(self.arm, "open_gripper") else None
         self.router.home()
 
     def run(self) -> None:
@@ -64,18 +65,19 @@ class Pipeline:
                     fails += 1
                     continue
                 self.arm.pick(target_px)
-                if not self.arm.gripper_holding():
-                    log.info("empty grasp — retrying")
-                    fails += 1
-                    continue
+                # Two holding signals: gripper position (fooled by gears' spokes)
+                # and the wrist camera (the deciding vote). Empty only if BOTH say so.
+                pos_holding = self.arm.gripper_holding()
                 n = self.perception.pieces_in_gripper(self.arm.frame("wrist"))
-                if n == 0:
-                    log.info("nothing seen in gripper — retrying")
-                    fails += 1
-                    continue
+                log.info("hold check: position says %s, wrist camera sees %d piece(s)",
+                         "holding" if pos_holding else "empty", n)
                 if n >= 2:
                     log.info("grabbed %d pieces — dropping back", n)
                     self.arm.drop_back()
+                    fails += 1
+                    continue
+                if n == 0 and not pos_holding:
+                    log.info("empty grasp — retrying")
                     fails += 1
                     continue
 
@@ -121,6 +123,14 @@ def main() -> None:
     cfg = Config.load(args.config)
     if args.dry_run:
         cfg.run.dry_run = True
+    if not cfg.run.dry_run:
+        from pathlib import Path as _P
+        override = _P(args.config).parent if args.config else _P(__file__).resolve().parent.parent
+        if not (override / "cameras_override.json").exists():
+            raise SystemExit(
+                "cameras_override.json missing - run tools/select_cameras.py before a real run "
+                "(macOS shuffles USB camera indices; hardcoded ones are not trustworthy)."
+            )
     log.info("AutoSort starting (dry_run=%s, mode=%s)", cfg.run.dry_run, cfg.run.mode)
     Pipeline(cfg).run()
 

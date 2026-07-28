@@ -71,7 +71,7 @@ class Perception:
         out = []
         for c in contours:
             area = cv2.contourArea(c)
-            if area < self.cfg.min_piece_area:
+            if area < self.cfg.min_piece_area or area > self.cfg.max_piece_area:
                 continue
             m = cv2.moments(c)
             if m["m00"] == 0:

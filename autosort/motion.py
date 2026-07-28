@@ -12,8 +12,11 @@ JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_ro
 
 
 def read_joints(robot) -> dict[str, float]:
-    """Current joint positions as a {name: degrees} dict (no camera reads)."""
-    obs = robot.bus.sync_read("Present_Position")
+    """Current joint positions as a {name: degrees} dict (no camera reads).
+
+    num_retry absorbs the occasional corrupted packet on the servo bus.
+    """
+    obs = robot.bus.sync_read("Present_Position", num_retry=4)
     return {j: float(obs[j]) for j in JOINTS}
 
 
