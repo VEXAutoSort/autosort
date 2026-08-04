@@ -16,6 +16,10 @@ arm:
   id: so-arm101                             # names the calibration file — matches the existing LeLab calibration
   device: mps                               # mps (Apple Silicon) | cuda | cpu
   pick_mode: classical                      # classical (taught poses, no model) | act (experimental)
+  solver: analytic                          # analytic = homography + inverse kinematics (6x more accurate);
+                                            # interpolate = old taught-pose blending
+  urdf_path: /tmp/so101_urdf/so101_nomesh.urdf   # SO-101 geometry for the analytic solver
+  hover_lift_m: 0.08                        # straight-up clearance above the grasp, metres
   taught_file: null                         # null = taught.json in repo root (created by tools/teach.py)
   gripper_holding_margin: 2.0               # deg ABOVE commanded-closed that counts as "holding a piece"
   pick_joint_offsets:                       # global reach correction applied to EVERY pick
@@ -26,7 +30,7 @@ arm:
   pick_timeout_s: 20                        # max seconds for one ACT pick attempt
   act_fps: 30                               # ACT control-loop rate
   policy_camera_names:                      # robot camera name -> dataset camera key (spaces matter!)
-    top: "Top view"
+    top: "top view camera"                  # must match act_pick_v1's dataset keys EXACTLY
     wrist: "wrist camera"
 
   poses:                                    # FALLBACK poses if taught.json is missing — teaching overrides these
@@ -46,10 +50,11 @@ cameras:
 # Assumes LIGHT surface with DARKER pieces (team decision 2026-07).
 perception:
   pile_roi: [0.15, 0.18, 0.9, 0.925] # [left, top, right, bottom] fractions of the TOP frame (tuned 2026-07-28: tip clear at top=0.18)
-  gripper_roi: [0.35, 0.45, 0.62, 0.88] # region of the WRIST frame where a held piece shows up (right edge stops short of the fingertip)
+  gripper_roi: [0.52, 0.36, 0.80, 0.59] # region of the WRIST frame where a held piece shows up (tuned live 2026-08-01)
   min_piece_area: 300                # px^2 — ignore specks smaller than this
   max_piece_area: 10000              # px^2 — ignore anything bigger than a piece (the box, hands)
   contrast_margin: 45                # min darkness below the surface to count as a piece; raise if shadows count, lower if pieces vanish
+  multi_piece_area: 3000             # total dark area in the gripper ROI meaning 2+ pieces; raise if one gear is called two
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
 
 # --- Classifier (enclosure not built yet) --------------------

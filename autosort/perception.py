@@ -29,9 +29,22 @@ class Perception:
         return self._count_blobs(top_frame, self.cfg.pile_roi)
 
     def pieces_in_gripper(self, wrist_frame) -> int:
+        """0 / 1 / 2+ pieces held, judged by TOTAL dark area, not blob count.
+
+        Blob counting is fragile here: a single gear gets split into two blobs by
+        a fingertip crossing it or by its own spokes, which used to read as "2
+        pieces" and trigger a needless drop-back. Total area doesn't care how the
+        region is carved up - two pieces genuinely cover about twice the area.
+        """
         if self.dry_run:
             return 1
-        return len(self._blobs(wrist_frame, self.cfg.gripper_roi))
+        blobs = self._blobs(wrist_frame, self.cfg.gripper_roi)
+        total = sum(b[0] for b in blobs)
+        if total < self.cfg.min_piece_area:
+            return 0
+        if total >= self.cfg.multi_piece_area:
+            return 2
+        return 1
 
     def largest_piece_px(self, top_frame) -> tuple[float, float] | None:
         """Full-frame pixel centroid of the biggest piece in the pile ROI.
@@ -73,6 +86,8 @@ class Perception:
         thr = max(1.0, bg - self.cfg.contrast_margin)
         _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        # bridge thin gaps (a fingertip or gear spoke splitting one piece in two)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         out = []
         for c in contours:

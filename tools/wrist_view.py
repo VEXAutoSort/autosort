@@ -32,11 +32,10 @@ def main() -> None:
     cfg = Config.load()
     perception = Perception(cfg.perception, dry_run=False)
     wrist = cfg.cameras["wrist"]
-    cap = cv2.VideoCapture(wrist.index)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, wrist.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, wrist.height)
-    if not cap.isOpened():
-        print("wrist camera failed to open — is LeLab (or the pick loop) running?")
+    try:
+        cap = wrist.verify_open("wrist")
+    except RuntimeError as e:
+        print(e)
         sys.exit(1)
     print("Q quits. Edit perception.gripper_roi in config.yaml, restart to see changes.")
 

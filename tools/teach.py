@@ -120,9 +120,28 @@ def main() -> None:
             cv2.circle(vis, (int(pending_pixel[0]), int(pending_pixel[1])), 16, (255, 0, 255), 3)
             cv2.putText(vis, "TARGET LOCKED - move gripper onto it, press G again (X cancels)",
                         (10, 94), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 0, 255), 2)
+        # Coverage guide: a 4x3 lattice over the zone. Cells with no taught point
+        # nearby get a cyan cross = "put a piece HERE next". Accuracy outside the
+        # taught hull is extrapolation, so even coverage matters more than count.
+        taught_px = [(p["pixel"][0], p["pixel"][1]) for p in data["grid"]]
+        cell_w = (rx1 - rx0) * fw / 4
+        cell_h = (ry1 - ry0) * fh / 3
+        need = 0
+        for cx_i in range(4):
+            for cy_i in range(3):
+                gx = rx0 * fw + cell_w * (cx_i + 0.5)
+                gy = ry0 * fh + cell_h * (cy_i + 0.5)
+                near = any((gx - tx) ** 2 + (gy - ty) ** 2 < (min(cell_w, cell_h) * 0.75) ** 2
+                           for tx, ty in taught_px)
+                if not near:
+                    need += 1
+                    cv2.drawMarker(vis, (int(gx), int(gy)), (255, 255, 0), cv2.MARKER_CROSS, 26, 2)
+        cv2.putText(vis, f"cyan crosses = teach here next ({need} cells uncovered)",
+                    (10, int(fh) - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 0), 2)
         for i, pt in enumerate(data["grid"]):
-            cv2.putText(vis, str(i + 1), (int(pt["pixel"][0]), int(pt["pixel"][1])),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
+            cv2.circle(vis, (int(pt["pixel"][0]), int(pt["pixel"][1])), 7, (0, 200, 255), -1)
+            cv2.putText(vis, str(i + 1), (int(pt["pixel"][0]) + 9, int(pt["pixel"][1])),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
         done = [k for k in ("home", "inspect", "box_drop") if k in data["poses"]]
         status = (f"grid:{len(data['grid'])}  hover:{'Y' if data['hover_delta'] else '-'}  "
                   f"poses:{','.join(done) or '-'}  "

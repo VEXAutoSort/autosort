@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 
 from .arm import Arm
 from .classifier import Classifier
@@ -59,7 +60,13 @@ class Pipeline:
                 # 2. pick one, then confirm it really is exactly one.
                 # Target is measured NOW, while the arm is at home and the view
                 # of the pile is unobstructed (classical mode uses it; ACT ignores it).
-                target_px = self.perception.largest_piece_px(self.arm.frame("top"))
+                top_frame = self.arm.frame("top")
+                if top_frame is None and not self.cfg.run.dry_run:
+                    log.error("top camera unavailable - cannot locate a piece; retrying")
+                    fails += 1
+                    time.sleep(1.0)
+                    continue
+                target_px = self.perception.largest_piece_px(top_frame)
                 if target_px is None and not self.cfg.run.dry_run:
                     log.info("no pick target found — retrying")
                     fails += 1
@@ -68,9 +75,17 @@ class Pipeline:
                 # Two holding signals: gripper position (fooled by gears' spokes)
                 # and the wrist camera (the deciding vote). Empty only if BOTH say so.
                 pos_holding = self.arm.gripper_holding()
-                n = self.perception.pieces_in_gripper(self.arm.frame("wrist"))
-                log.info("hold check: position says %s, wrist camera sees %d piece(s)",
-                         "holding" if pos_holding else "empty", n)
+                wrist_frame = self.arm.frame("wrist")
+                if wrist_frame is None:
+                    # camera dropped out: trust the gripper position alone rather
+                    # than reading "no frame" as "no piece"
+                    n = 1 if pos_holding else 0
+                    log.warning("wrist camera unavailable - using gripper position only (%s)",
+                                "holding" if pos_holding else "empty")
+                else:
+                    n = self.perception.pieces_in_gripper(wrist_frame)
+                    log.info("hold check: position says %s, wrist camera sees %d piece(s)",
+                             "holding" if pos_holding else "empty", n)
                 if n >= 2:
                     log.info("grabbed %d pieces — dropping back", n)
                     self.arm.drop_back()
@@ -102,10 +117,18 @@ class Pipeline:
     def shutdown(self) -> None:
         try:
             self.arm.home()
+        except Exception as e:
+            log.warning("could not return home during shutdown: %s", e)
         finally:
-            self.arm.disconnect()
-            self.classifier.disconnect()
-            self.router.disconnect()
+            try:
+                self.arm.disconnect()
+            except Exception:
+                pass
+            for closer in (self.classifier.disconnect, self.router.disconnect):
+                try:
+                    closer()
+                except Exception:
+                    pass
         log.info("shut down cleanly")
 
 

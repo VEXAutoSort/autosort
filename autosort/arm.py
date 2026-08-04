@@ -39,11 +39,17 @@ class Arm:
         self.preprocessor = None
         self.postprocessor = None
         self.taught: Taught | None = None
+        self.solver = None   # AnalyticSolver when arm.solver == "analytic"
 
     # --- lifecycle ----------------------------------------------------
     def connect(self) -> None:
         if not self.dry_run:
             self.taught = Taught.load(self.cfg.taught_file)
+            if self.cfg.pick_mode == "classical" and self.cfg.solver == "analytic":
+                from .analytic import AnalyticSolver
+                self.solver = AnalyticSolver(self.taught, urdf_path=self.cfg.urdf_path)
+                log.info("analytic solver ready (homography residual %.1f mm)",
+                         self.solver.fit_residual_mm)
         if self.dry_run:
             log.info("[dry-run] arm connected (pick_mode=%s)", self.cfg.pick_mode)
             return
@@ -76,9 +82,28 @@ class Arm:
                 except Exception:
                     pass
                 time.sleep(2)
+        self._install_reconnect_hook(SO101Follower, SO101FollowerConfig, cams)
         if self.cfg.pick_mode == "act":
             self._load_policy()
         log.info("arm connected on %s (pick_mode=%s)", self.cfg.port, self.cfg.pick_mode)
+
+    def _install_reconnect_hook(self, cls, cfg_cls, cams) -> None:
+        """Let motion.py recover a dropped USB serial link without losing the run.
+
+        Returns the NEW robot object: the old one's serial fd is dead, so any
+        caller must retry on the returned object, never the one it started with.
+        """
+        def reconnect():
+            try:
+                self.robot.disconnect()
+            except Exception:
+                pass
+            robot = cls(cfg_cls(port=self.cfg.port, id=self.cfg.id, cameras=cams))
+            robot.connect(calibrate=False)
+            robot._autosort_reconnect = reconnect
+            self.robot = robot
+            return robot
+        self.robot._autosort_reconnect = reconnect
 
     def _load_policy(self) -> None:
         """ACT policy + its processor pipelines (normalization lives there, not in the policy)."""
@@ -102,11 +127,52 @@ class Arm:
 
     # --- observation --------------------------------------------------
     def observe(self) -> dict[str, Any]:
-        return {} if self.dry_run else self.robot.get_observation()
+        """Robot observation, tolerating a camera that dropped off the USB bus.
+
+        The wrist camera's cable flexes on every arm motion, so it is the most
+        likely device to disappear mid-run. A dead camera must never kill the
+        run: we retry, then fall back to a joints-only observation.
+        """
+        if self.dry_run:
+            return {}
+        try:
+            return self.robot.get_observation()
+        except Exception as e:
+            log.warning("observation failed (%s) - retrying cameras once", type(e).__name__)
+            if self._recover_cameras():
+                try:
+                    return self.robot.get_observation()
+                except Exception:
+                    pass
+            # last resort: joints only, so motion and the gripper check still work
+            try:
+                return {f"{j}.pos": v for j, v in read_joints(self.robot).items()}
+            except Exception:
+                return {}
+
+    def _recover_cameras(self) -> bool:
+        """Try to reconnect the robot's cameras in place."""
+        ok = False
+        for name, cam in getattr(self.robot, "cameras", {}).items():
+            try:
+                try:
+                    cam.disconnect()
+                except Exception:
+                    pass
+                time.sleep(0.4)
+                cam.connect()
+                ok = True
+                log.warning("camera '%s' reconnected", name)
+            except Exception as e:
+                log.error("camera '%s' could not be reconnected: %s", name, type(e).__name__)
+        return ok
 
     def frame(self, name: str):
-        """Latest image from an arm camera ('top' or 'wrist'); None in dry-run."""
-        return self.observe().get(name)
+        """Latest image from an arm camera ('top' or 'wrist'); None if unavailable."""
+        img = self.observe().get(name)
+        if img is None and not self.dry_run:
+            log.warning("camera '%s' returned no frame - continuing without it", name)
+        return img
 
     def gripper_pos(self) -> float:
         return 50.0 if self.dry_run else read_joints(self.robot)["gripper"]
@@ -150,10 +216,26 @@ class Arm:
         if target_px is None:
             log.warning("classical pick called with no target — skipping")
             return
-        grasp = self.taught.grasp_for_pixel(*target_px)
+        if self.solver is not None:
+            from .analytic import UnsafePoseError
+            try:
+                grasp = self.solver.grasp_for_pixel(*target_px)
+            except UnsafePoseError as e:
+                log.error("REFUSING to move: %s", e)
+                return
+        else:
+            grasp = self.taught.grasp_for_pixel(*target_px)
         for joint, delta in (self.cfg.pick_joint_offsets or {}).items():
             grasp[joint] = grasp.get(joint, 0.0) + delta
-        hover = self.taught.hover_for(grasp)
+        if self.solver is not None:
+            from .analytic import UnsafePoseError
+            try:
+                hover = self.solver.hover_for(grasp, self.cfg.hover_lift_m)
+            except UnsafePoseError as e:
+                log.error("REFUSING to move: %s", e)
+                return
+        else:
+            hover = self.taught.hover_for(grasp)
         open_g, closed_g = self.taught.gripper_open, self.taught.gripper_closed
 
         # set the gripper width FIRST, in place, so it stays constant through

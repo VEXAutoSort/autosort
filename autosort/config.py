@@ -19,6 +19,36 @@ class CameraCfg:
     height: int = 480
     fps: int = 30
 
+    def verify_open(self, role: str):
+        """Open the camera and assert it looks like the RIGHT one.
+
+        macOS renumbers USB cameras on replug, so a saved index can silently point
+        at the wrong camera - which corrupts detection and any taught calibration.
+        Frame size is a cheap fingerprint: the overhead and wrist cameras have
+        different native resolutions.
+        """
+        import cv2
+
+        cap = cv2.VideoCapture(self.index)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        if not cap.isOpened():
+            raise RuntimeError(f"camera '{role}' (index {self.index}) would not open - "
+                               "is LeLab or another tool holding it?")
+        ok, frame = cap.read()
+        if not ok:
+            cap.release()
+            raise RuntimeError(f"camera '{role}' (index {self.index}) opened but returned no frame")
+        h, w = frame.shape[:2]
+        if (w, h) != (self.width, self.height):
+            cap.release()
+            raise RuntimeError(
+                f"camera '{role}' (index {self.index}) returned {w}x{h}, expected "
+                f"{self.width}x{self.height}. The USB camera order almost certainly changed - "
+                f"re-run tools/select_cameras.py before doing anything else."
+            )
+        return cap
+
 
 @dataclass
 class RunCfg:
@@ -39,6 +69,9 @@ class ArmCfg:
     taught_file: str | None = None            # taught.json path (None = repo root)
     gripper_holding_margin: float = 4.0       # deg short of taught-closed that means "holding a piece"
     pick_joint_offsets: dict[str, float] | None = None  # global reach correction, deg added to every computed grasp
+    solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
+    urdf_path: str | None = None              # SO-101 URDF for the analytic solver
+    hover_lift_m: float = 0.08                # how far straight up the hover pose sits (analytic only)
     act_fps: float = 30.0                     # control rate for the ACT pick loop
     policy_camera_names: dict[str, str] | None = None  # robot cam name -> dataset camera key
 
@@ -51,6 +84,7 @@ class PerceptionCfg:
     empty_frames: int
     max_piece_area: int = 10000   # px^2 - ignore blobs bigger than a piece (the drop box, a hand, shadows)
     contrast_margin: int = 45     # how much darker than the surface a pixel must be to count as piece (shadows are ~15-25)
+    multi_piece_area: int = 3000  # total dark px^2 in the gripper ROI that means 2+ pieces (one gear is well under this)
 
 
 @dataclass
