@@ -120,15 +120,15 @@ def main() -> None:
             cv2.circle(vis, (int(pending_pixel[0]), int(pending_pixel[1])), 16, (255, 0, 255), 3)
             cv2.putText(vis, "TARGET LOCKED - move gripper onto it, press G again (X cancels)",
                         (10, 94), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 0, 255), 2)
-        # Coverage guide: a 4x3 lattice over the zone. Cells with no taught point
+        # Coverage guide: a 5x4 lattice over the zone. Cells with no taught point
         # nearby get a cyan cross = "put a piece HERE next". Accuracy outside the
         # taught hull is extrapolation, so even coverage matters more than count.
         taught_px = [(p["pixel"][0], p["pixel"][1]) for p in data["grid"]]
-        cell_w = (rx1 - rx0) * fw / 4
-        cell_h = (ry1 - ry0) * fh / 3
+        cell_w = (rx1 - rx0) * fw / 5
+        cell_h = (ry1 - ry0) * fh / 4
         need = 0
-        for cx_i in range(4):
-            for cy_i in range(3):
+        for cx_i in range(5):
+            for cy_i in range(4):
                 gx = rx0 * fw + cell_w * (cx_i + 0.5)
                 gy = ry0 * fh + cell_h * (cy_i + 0.5)
                 near = any((gx - tx) ** 2 + (gy - ty) ** 2 < (min(cell_w, cell_h) * 0.75) ** 2
