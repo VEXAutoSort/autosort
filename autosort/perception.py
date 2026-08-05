@@ -10,6 +10,7 @@ reversed, flip THRESH_BINARY_INV below.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from .config import PerceptionCfg
 
@@ -61,6 +62,33 @@ class Perception:
         return (cx, cy)
 
     # --- shared blob detector ----------------------------------------
+    def save_debug_frame(self, frame, target_px=None, tag="refused") -> str | None:
+        """Annotated snapshot to /tmp for post-mortem (Claude can read files but
+        cannot open cameras, so refused picks save what the camera saw)."""
+        import time as _time
+
+        import cv2
+
+        if frame is None:
+            return None
+        vis = frame.copy()
+        h, w = vis.shape[:2]
+        x0, y0, x1, y1 = self.cfg.pile_roi
+        cv2.rectangle(vis, (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h)),
+                      (0, 165, 255), 2)
+        for area, cx, cy in self._blobs(frame, self.cfg.pile_roi):
+            cv2.circle(vis, (int(cx), int(cy)), 10, (0, 255, 0), 2)
+            cv2.putText(vis, f"{int(area)}", (int(cx) + 12, int(cy)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        if target_px is not None:
+            cv2.drawMarker(vis, (int(target_px[0]), int(target_px[1])), (0, 0, 255),
+                           cv2.MARKER_CROSS, 44, 3)
+        out = Path("/tmp/autosort_debug")
+        out.mkdir(exist_ok=True)
+        path = str(out / f"{tag}_{_time.strftime('%H%M%S')}.png")
+        cv2.imwrite(path, vis)
+        return path
+
     def _blobs(self, frame, roi) -> list[tuple[float, float, float]]:
         """Pieces in `roi` as (area, cx, cy) with centroids in FULL-frame pixels.
 

@@ -201,28 +201,36 @@ class Arm:
         move_smooth(self.robot, {"gripper": self.taught.gripper_open}, duration_s=0.4)
 
     # --- pick backends ------------------------------------------------
-    def pick(self, target_px: tuple[float, float] | None = None) -> None:
-        """Grasp one piece, end holding at the 'inspect' pose."""
+    def pick(self, target_px: tuple[float, float] | None = None) -> bool:
+        """Grasp one piece, end holding at the 'inspect' pose.
+
+        Returns False if no grasp was ever attempted (no target, or a safety
+        guard refused the pose). The caller MUST treat False as "the arm never
+        moved and the gripper never closed" — running the hold check after a
+        refused pick reads the still-open gripper as 'holding' a phantom piece.
+        """
         if self.dry_run:
             log.info("[dry-run] pick(%s)", target_px)
-            return
+            return True
         if self.cfg.pick_mode == "classical":
-            self._pick_classical(target_px)
+            if not self._pick_classical(target_px):
+                return False
         else:
             self._pick_act()
         self.move_to("inspect")  # standardize the pose for the single-piece check
+        return True
 
-    def _pick_classical(self, target_px: tuple[float, float] | None) -> None:
+    def _pick_classical(self, target_px: tuple[float, float] | None) -> bool:
         if target_px is None:
             log.warning("classical pick called with no target — skipping")
-            return
+            return False
         if self.solver is not None:
             from .analytic import UnsafePoseError
             try:
                 grasp = self.solver.grasp_for_pixel(*target_px)
             except UnsafePoseError as e:
                 log.error("REFUSING to move: %s", e)
-                return
+                return False
         else:
             grasp = self.taught.grasp_for_pixel(*target_px)
         for joint, delta in (self.cfg.pick_joint_offsets or {}).items():
@@ -233,7 +241,7 @@ class Arm:
                 hover = self.solver.hover_for(grasp, self.cfg.hover_lift_m)
             except UnsafePoseError as e:
                 log.error("REFUSING to move: %s", e)
-                return
+                return False
         else:
             hover = self.taught.hover_for(grasp)
         open_g, closed_g = self.taught.gripper_open, self.taught.gripper_closed
@@ -246,6 +254,7 @@ class Arm:
         move_smooth(self.robot, {**grasp, "gripper": closed_g}, duration_s=0.5)
         time.sleep(0.3)
         move_smooth(self.robot, {**hover, "gripper": closed_g}, duration_s=0.9)
+        return True
 
     def _pick_act(self) -> None:
         import torch

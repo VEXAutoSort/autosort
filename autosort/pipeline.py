@@ -100,7 +100,12 @@ class Pipeline:
                         fails += 1
                         time.sleep(1.0)
                         continue
-                self.arm.pick(target_px)
+                if not self.arm.pick(target_px):
+                    fails += 1
+                    dbg = self.perception.save_debug_frame(top_frame, target_px)
+                    if dbg:
+                        log.error("pick not attempted — annotated frame saved to %s", dbg)
+                    continue
                 # Two holding signals: gripper position (fooled by gears' spokes)
                 # and the wrist camera (the deciding vote). Empty only if BOTH say so.
                 pos_holding = self.arm.gripper_holding()
