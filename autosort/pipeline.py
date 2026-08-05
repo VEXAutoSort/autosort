@@ -62,32 +62,40 @@ class Pipeline:
         empty_reads = 0
         try:
             while True:
-                # 1. done? pile empty (confirmed over several frames) or too many failures
-                if self.perception.pieces_on_tray(self.arm.frame("top")) == 0:
-                    empty_reads += 1
-                else:
-                    empty_reads = 0
-                if empty_reads >= self.cfg.perception.empty_frames:
-                    log.info("pile empty — %d pieces sorted. done.", sorted_count)
-                    break
                 if fails >= self.cfg.run.max_consecutive_fails:
                     log.warning("%d failed picks in a row — stopping.", fails)
                     break
 
-                # 2. pick one, then confirm it really is exactly one.
-                # Target is measured NOW, while the arm is at home and the view
-                # of the pile is unobstructed (classical mode uses it; ACT ignores it).
+                # 1. one frame per cycle: detect, filter to the REACHABLE
+                # sector, and pick a target. Measured while the arm is at home
+                # (clear view; classical uses the target, ACT ignores it).
                 top_frame = self.arm.frame("top")
                 if top_frame is None and not self.cfg.run.dry_run:
                     log.error("top camera unavailable - cannot locate a piece; retrying")
                     fails += 1
                     time.sleep(1.0)
                     continue
-                target_px = self.perception.largest_piece_px(top_frame)
-                if target_px is None and not self.cfg.run.dry_run:
-                    log.info("no pick target found — retrying")
-                    fails += 1
+                if self.cfg.run.dry_run:
+                    remaining = self.perception.pieces_on_tray(top_frame)
+                    target_px = self.perception.largest_piece_px(top_frame) if remaining else None
+                else:
+                    blobs = self.perception.pile_blobs_sorted(top_frame)
+                    reachable = [b for b in blobs if self.arm.reachable_px(b[1], b[2])]
+                    if len(blobs) > len(reachable):
+                        log.info("%d piece(s) visible but outside the reachable sector — ignoring",
+                                 len(blobs) - len(reachable))
+                    remaining = len(reachable)
+                    target_px = (reachable[0][1], reachable[0][2]) if reachable else None
+
+                # 2. done? nothing REACHABLE left, confirmed over several frames.
+                if remaining == 0:
+                    empty_reads += 1
+                    if empty_reads >= self.cfg.perception.empty_frames:
+                        log.info("no reachable pieces left — %d sorted. done.", sorted_count)
+                        break
+                    time.sleep(0.3)
                     continue
+                empty_reads = 0
                 if self.recal is not None and target_px is not None:
                     from .recal import RecalError
                     try:

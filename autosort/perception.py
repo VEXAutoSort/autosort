@@ -76,6 +76,11 @@ class Perception:
             return 2
         return 1
 
+    def pile_blobs_sorted(self, top_frame) -> list[tuple[float, float, float]]:
+        """All pile blobs, biggest first — lets the caller apply its own filters
+        (e.g. reachability) and fall through to the next candidate."""
+        return sorted(self._pile_blobs(top_frame), key=lambda b: -b[0])
+
     def largest_piece_px(self, top_frame) -> tuple[float, float] | None:
         """Full-frame pixel centroid of the biggest piece in the pile ROI.
 

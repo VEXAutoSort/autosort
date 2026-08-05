@@ -54,7 +54,15 @@ class AnalyticSolver:
 
     # --- calibration --------------------------------------------------
     def _fit(self, taught) -> None:
-        """Fit pixel->table homography from the taught points via forward kinematics."""
+        """Fit pixel->table homography from the taught points via forward kinematics.
+
+        Also fitted from the same data:
+        - a single division-model distortion parameter k (Fitzgibbon): mild
+          barrel warp, cross-validated worst-case gain ~3 mm on a 40-pt grid
+        - a grasp-height PLANE z(x,y): the table is measurably tilted vs the
+          arm's base (~16 mm corner-to-corner) - a constant median z was
+          systematically ~5 mm wrong along the far edge
+        """
         px, xy, z = [], [], []
         self._ref_poses = []
         for g in taught.grid:
@@ -68,7 +76,30 @@ class AnalyticSolver:
         self.pixels = np.asarray(px, dtype=float)
         self.table_xy = np.asarray(xy, dtype=float)
         self.grasp_z = float(np.median(z))
-        self.H = _fit_homography(self.pixels, self.table_xy)
+
+        # distortion: 1-D search over k, refitting H each time (fast, stable
+        # with a spread grid; with few clustered points it just finds ~0 gain)
+        best = (0.0, None, np.inf)
+        for k in np.linspace(-0.5, 2.0, 126):
+            up = self._undistort(self.pixels, k)
+            H = _fit_homography(up, self.table_xy)
+            proj = np.hstack([up, np.ones((len(up), 1))]) @ H.T
+            r = np.linalg.norm(proj[:, :2] / proj[:, 2:3] - self.table_xy, axis=1).mean()
+            if r < best[2]:
+                best = (k, H, r)
+        self.k, self.H, _ = best
+
+        # grasp-height plane z(x, y), least squares on table coords
+        A = np.hstack([self.table_xy, np.ones((len(xy), 1))])
+        self._z_plane, *_ = np.linalg.lstsq(A, np.asarray(z), rcond=None)
+
+        # reachable sector: the arm sweeps an annular sector, not a rectangle.
+        # The taught points trace it empirically (teach the fence where you
+        # want it); margins let pieces slightly past the last taught point in.
+        r = np.linalg.norm(self.table_xy, axis=1)
+        ang = np.degrees(np.arctan2(self.table_xy[:, 1], self.table_xy[:, 0]))
+        self._r_bounds = (float(r.min()) - 0.015, float(r.max()) + 0.015)
+        self._ang_bounds = (float(ang.min()) - 5.0, float(ang.max()) + 5.0)
 
         # orientation: reuse the median taught grasp orientation (all are
         # top-down grasps; IK weights orientation weakly anyway)
@@ -76,12 +107,31 @@ class AnalyticSolver:
         self._ref_q = np.median(np.stack([q for q, _ in self._ref_poses]), axis=0)
 
         resid = np.linalg.norm(self._apply_H(self.pixels) - self.table_xy, axis=1)
-        log.info("homography fitted on %d points: mean residual %.1f mm, max %.1f mm",
-                 len(px), resid.mean() * 1000, resid.max() * 1000)
+        log.info("homography fitted on %d points (k=%+.3f): mean residual %.1f mm, max %.1f mm",
+                 len(px), self.k, resid.mean() * 1000, resid.max() * 1000)
         self.fit_residual_mm = float(resid.mean() * 1000)
 
+    @staticmethod
+    def _undistort(pixels: np.ndarray, k: float,
+                   center=(480.0, 300.0), scale=566.0) -> np.ndarray:
+        """Division-model undistortion; k=0 is the identity."""
+        d = np.atleast_2d(pixels) - center
+        r2 = (d ** 2).sum(1, keepdims=True) / scale ** 2
+        return np.asarray(center + d / (1 + k * r2))
+
+    def grasp_z_at(self, x: float, y: float) -> float:
+        return float(np.array([x, y, 1.0]) @ self._z_plane)
+
+    def reach_ok(self, px: float, py: float) -> bool:
+        """Is the piece at this pixel inside the arm's taught reachable sector?"""
+        x, y = self.table_xy_for_pixel(px, py)
+        r = float(np.hypot(x, y))
+        ang = float(np.degrees(np.arctan2(y, x)))
+        return (self._r_bounds[0] <= r <= self._r_bounds[1]
+                and self._ang_bounds[0] <= ang <= self._ang_bounds[1])
+
     def _apply_H(self, pixels: np.ndarray) -> np.ndarray:
-        pts = np.atleast_2d(pixels).astype(float)
+        pts = self._undistort(np.atleast_2d(pixels).astype(float), self.k)
         ones = np.ones((len(pts), 1))
         hom = np.hstack([pts, ones]) @ self.H.T
         return hom[:, :2] / hom[:, 2:3]
@@ -91,7 +141,8 @@ class AnalyticSolver:
         return self._apply_H(np.array([[px, py]]))[0]
 
     def _solve_ik(self, T_target: np.ndarray, q_seed: np.ndarray,
-                  iters: int = 12, tol_m: float = 0.0005) -> np.ndarray:
+                  iters: int = 12, tol_m: float = 0.0005,
+                  orientation_weight: float = 0.02) -> np.ndarray:
         """Iterate placo's single-step solver to convergence.
 
         inverse_kinematics() performs one local optimization step, so a seed far
@@ -101,7 +152,8 @@ class AnalyticSolver:
         q = np.asarray(q_seed, dtype=float).copy()
         for _ in range(iters):
             q = np.asarray(self.kin.inverse_kinematics(
-                q, T_target, position_weight=1.0, orientation_weight=0.02), dtype=float)
+                q, T_target, position_weight=1.0,
+                orientation_weight=orientation_weight), dtype=float)
             err = np.linalg.norm(self.kin.forward_kinematics(q)[:3, 3] - T_target[:3, 3])
             if err < tol_m:
                 break
@@ -140,20 +192,38 @@ class AnalyticSolver:
         x, y = self.table_xy_for_pixel(px, py)
         T = np.eye(4)
         T[:3, :3] = self._ref_R
-        T[:3, 3] = [x, y, self.grasp_z + z_offset]
+        T[:3, 3] = [x, y, self.grasp_z_at(x, y) + z_offset]
         seed = np.array([self.taught.grasp_for_pixel(px, py)[j] for j in JOINTS], dtype=float)
-        q = self._solve_ik(T, seed)
-        # Pin wrist_roll to the seed. The gripper origin sits almost on the roll
-        # axis, so this costs <3 mm of position (measured on all taught points) —
-        # but left free, IK drifts the roll up to ~28 deg from anything taught
-        # (orientation weight is 0.02), tripping the envelope guard and rotating
-        # the fingers unpredictably. Orientation-aware grasping will set this
-        # joint explicitly from the piece's minAreaRect angle later.
-        q[JOINTS.index("wrist_roll")] = seed[JOINTS.index("wrist_roll")]
 
-        # did the IK actually reach the target, and is the pose sane?
-        reached = self.kin.forward_kinematics(q)[:3, 3]
-        miss_mm = float(np.linalg.norm(reached - T[:3, 3]) * 1000)
+        # The interpolated seed can land in the wrong IK basin (observed: one
+        # taught point missing by 16 mm from its own seed). Retry from the
+        # nearest taught poses before refusing - each is a known-good grasp
+        # configuration, so its basin usually contains the solution.
+        roll = JOINTS.index("wrist_roll")
+        near = np.argsort(np.linalg.norm(self.pixels - [px, py], axis=1))[:3]
+        seeds = [seed] + [self._ref_poses[i][0] for i in near]
+        best_q, best_miss = None, np.inf
+        # Two rounds: normal orientation weight, then position-first. Near the
+        # zone edge the median grasp orientation can be slightly infeasible and
+        # the orientation term drags the solve ~16 mm off the point (measured);
+        # a near-zero weight nails position, and the wrist_roll pin plus the
+        # envelope guard still keep the pose sane.
+        for ow in (0.02, 0.001):
+            for s0 in seeds:
+                q = self._solve_ik(T, s0, orientation_weight=ow)
+                q[roll] = seed[roll]
+                miss = float(np.linalg.norm(self.kin.forward_kinematics(q)[:3, 3] - T[:3, 3]) * 1000)
+                if miss < best_miss:
+                    best_q, best_miss = q, miss
+                if miss <= self.max_ik_error_mm:
+                    break
+            if best_miss <= self.max_ik_error_mm:
+                break
+        q, miss_mm = best_q, best_miss
+        # (wrist_roll stays pinned to the interpolated seed: the gripper origin
+        # sits on the roll axis, and free roll drifts ~28 deg and trips the
+        # envelope guard. Orientation-aware grasping will set it explicitly.)
+
         if miss_mm > self.max_ik_error_mm:
             raise UnsafePoseError(
                 f"IK did not converge for pixel ({px:.0f},{py:.0f}): off by {miss_mm:.0f} mm"

@@ -174,6 +174,11 @@ class Arm:
             log.warning("camera '%s' returned no frame - continuing without it", name)
         return img
 
+    def reachable_px(self, px: float, py: float) -> bool:
+        """Whether a piece at this TOP-frame pixel is inside the reachable
+        sector. True when no analytic solver is active (no data to judge by)."""
+        return True if self.solver is None else self.solver.reach_ok(px, py)
+
     def gripper_pos(self) -> float:
         return 50.0 if self.dry_run else read_joints(self.robot)["gripper"]
 
