@@ -36,7 +36,10 @@ DEFAULT_URDF = Path("/tmp/so101_urdf/so101_nomesh.urdf")
 
 class AnalyticSolver:
     def __init__(self, taught, urdf_path: str | Path | None = None,
-                 target_frame: str = "gripper_frame_link"):
+                 target_frame: str = "gripper_frame_link",
+                 orient_min_aspect: float = 1.4,
+                 orient_roll_offset_deg: float = 0.0,
+                 orient_roll_extra_deg: float = 75.0):
         from lerobot.model.kinematics import RobotKinematics
 
         self.urdf_path = Path(urdf_path or DEFAULT_URDF)
@@ -48,6 +51,9 @@ class AnalyticSolver:
         self.kin = RobotKinematics(urdf_path=str(self.urdf_path),
                                    target_frame_name=target_frame, joint_names=JOINTS)
         self.taught = taught
+        self.orient_min_aspect = orient_min_aspect
+        self.orient_roll_offset_deg = orient_roll_offset_deg
+        self.orient_roll_extra_deg = orient_roll_extra_deg
         self.joint_margin_deg = 25.0   # how far outside the taught envelope a solve may go
         self.max_ik_error_mm = 15.0    # reject solutions that miss the requested point
         self._fit(taught)
@@ -198,12 +204,17 @@ class AnalyticSolver:
         Every taught grasp is a top-down pick in a small workspace, so any joint
         far outside the taught envelope means the solve went wrong - we refuse it
         rather than driving the arm there and hitting something.
+
+        Checks the four ARM joints only: the gripper is commanded separately,
+        and wrist_roll is either pinned to the interpolated seed (inside the
+        taught band by construction) or set by orientation-aware grasping,
+        which enforces its own explicit roll bound.
         """
         taught_q = np.stack([[g["joints"][j] for j in JOINTS] for g in self.taught.grid])
         lo = taught_q.min(axis=0) - self.joint_margin_deg
         hi = taught_q.max(axis=0) + self.joint_margin_deg
         bad = [(JOINTS[i], round(float(q[i]), 1), round(float(lo[i]), 1), round(float(hi[i]), 1))
-               for i in range(len(JOINTS) - 1)  # gripper is commanded separately
+               for i in range(4)  # shoulder_pan, shoulder_lift, elbow_flex, wrist_flex
                if q[i] < lo[i] or q[i] > hi[i]]
         if bad:
             raise UnsafePoseError(
@@ -212,13 +223,84 @@ class AnalyticSolver:
             )
         return q
 
+    # --- orientation-aware grasping -----------------------------------
+    def table_angle_for(self, px: float, py: float, angle_img_deg: float) -> float:
+        """Map a long-axis direction at an image point into TABLE-frame degrees.
+
+        Uses the local Jacobian of the (undistorted) homography, so the image's
+        y-down convention and any perspective rotation are handled for free.
+        """
+        d = np.array([np.cos(np.radians(angle_img_deg)),
+                      np.sin(np.radians(angle_img_deg))])
+        p0 = self._apply_H(np.array([[px, py]]))[0]
+        p1 = self._apply_H(np.array([[px + 2 * d[0], py + 2 * d[1]]]))[0]
+        v = p1 - p0
+        return float(np.degrees(np.arctan2(v[1], v[0]))) % 180.0
+
+    def _finger_yaw(self, q: np.ndarray, ax: int | None = None) -> tuple[float, int]:
+        """(table-frame yaw of a gripper axis, the axis index used).
+
+        The axis is chosen once (most horizontal at the given pose) and must
+        then be passed back on subsequent calls: re-choosing per pose can flip
+        between gripper axes as the wrist rolls, which silently shifts the
+        yaw meaning by 90 degrees.
+        """
+        R = self.kin.forward_kinematics(q)[:3, :3]
+        if ax is None:
+            ax = int(np.argmin(np.abs(R[2, :])))
+        yaw = float(np.degrees(np.arctan2(R[1, ax], R[0, ax])))
+        return yaw, ax
+
+    def _oriented_roll(self, q: np.ndarray, px: float, py: float,
+                       angle_img_deg: float) -> float | None:
+        """wrist_roll that puts the finger axis ACROSS the piece's long axis.
+
+        Newton-iterated against FK: with the wrist tilted off vertical, finger
+        yaw is NONLINEAR in roll (a one-step linear estimate measured 37 deg
+        mean error), so measure - correct - remeasure until aligned.
+
+        Returns None when alignment cannot be reached (degenerate response or
+        the required roll leaves the allowed band) - callers fall back to the
+        seed roll, i.e. the proven round-piece behavior.
+        """
+        theta = self.table_angle_for(px, py, angle_img_deg)
+        want = theta + 90.0 + self.orient_roll_offset_deg
+        roll_i = JOINTS.index("wrist_roll")
+        taught_roll = np.array([g["joints"]["wrist_roll"] for g in self.taught.grid])
+        lo = float(taught_roll.min()) - self.orient_roll_extra_deg
+        hi = float(taught_roll.max()) + self.orient_roll_extra_deg
+
+        qc = q.copy()
+        yaw, ax = self._finger_yaw(qc)   # axis fixed HERE, reused throughout
+        for _ in range(8):
+            err = (want - yaw + 90.0) % 180.0 - 90.0   # 180-deg piece symmetry
+            if abs(err) < 1.0:
+                return float(qc[roll_i]) if lo <= qc[roll_i] <= hi else None
+            dq = qc.copy()
+            dq[roll_i] += 5.0
+            yaw_d, _ = self._finger_yaw(dq, ax)
+            gain = ((yaw_d - yaw + 90.0) % 180.0 - 90.0) / 5.0
+            if abs(gain) < 0.2:   # roll barely turns the fingers - give up
+                return None
+            qc[roll_i] += float(np.clip(err / gain, -40.0, 40.0))
+            if not (lo - 40.0 <= qc[roll_i] <= hi + 40.0):   # runaway
+                return None
+            yaw, _ = self._finger_yaw(qc, ax)
+        return None
+
     def grasp_for_pixel(self, px: float, py: float,
-                        z_offset: float = 0.0) -> dict[str, float]:
+                        z_offset: float = 0.0,
+                        orient: tuple[float, float] | None = None) -> dict[str, float]:
         """Joint angles that put the gripper on the piece seen at (px, py).
 
         The taught-pose interpolation supplies the seed (close, but only accurate
         near taught samples); the IK then solves the geometry exactly, which is
         what makes this valid across the whole workspace.
+
+        orient = (long-axis angle in image degrees, aspect ratio) from
+        perception. Elongated pieces (aspect >= orient_min_aspect) get the
+        claw rotated to grab ACROSS their long axis; round pieces keep the
+        taught-seed roll.
         """
         # Out-of-frame pixels are software errors, and the division model would
         # otherwise COMPRESS an absurd far pixel back into the working area and
@@ -248,6 +330,16 @@ class AnalyticSolver:
                 f"IK did not converge for pixel ({px:.0f},{py:.0f}): off by {miss_mm:.0f} mm"
             )
         q = self._sanity_check(q, f"pixel ({px:.0f},{py:.0f})")
+
+        if orient is not None and orient[1] >= self.orient_min_aspect:
+            roll = self._oriented_roll(q, px, py, orient[0])
+            if roll is None:
+                log.warning("cannot align claw to piece angle %.0f deg (aspect %.1f) - "
+                            "using the taught roll", orient[0], orient[1])
+            else:
+                log.info("orienting claw: piece at %.0f deg (aspect %.1f) -> wrist_roll %.1f",
+                         orient[0], orient[1], roll)
+                q[JOINTS.index("wrist_roll")] = roll
         out = {j: float(q[i]) for i, j in enumerate(JOINTS)}
         # the gripper joint is commanded separately by the pick sequence
         out["gripper"] = float(seed[JOINTS.index("gripper")])

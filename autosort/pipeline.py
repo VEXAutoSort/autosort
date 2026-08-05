@@ -75,6 +75,7 @@ class Pipeline:
                     fails += 1
                     time.sleep(1.0)
                     continue
+                target_orient = None
                 if self.cfg.run.dry_run:
                     remaining = self.perception.pieces_on_tray(top_frame)
                     target_px = self.perception.largest_piece_px(top_frame) if remaining else None
@@ -85,7 +86,11 @@ class Pipeline:
                         log.info("%d piece(s) visible but outside the reachable sector — ignoring",
                                  len(blobs) - len(reachable))
                     remaining = len(reachable)
-                    target_px = (reachable[0][1], reachable[0][2]) if reachable else None
+                    if reachable:
+                        target_px = (reachable[0][1], reachable[0][2])
+                        target_orient = (reachable[0][3], reachable[0][4])
+                    else:
+                        target_px = None
 
                 # 2. done? nothing REACHABLE left, confirmed over several frames.
                 if remaining == 0:
@@ -108,7 +113,7 @@ class Pipeline:
                         fails += 1
                         time.sleep(1.0)
                         continue
-                if not self.arm.pick(target_px):
+                if not self.arm.pick(target_px, target_orient):
                     fails += 1
                     dbg = self.perception.save_debug_frame(top_frame, target_px)
                     if dbg:

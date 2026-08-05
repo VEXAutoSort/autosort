@@ -47,7 +47,11 @@ class Arm:
             self.taught = Taught.load(self.cfg.taught_file)
             if self.cfg.pick_mode == "classical" and self.cfg.solver == "analytic":
                 from .analytic import AnalyticSolver
-                self.solver = AnalyticSolver(self.taught, urdf_path=self.cfg.urdf_path)
+                self.solver = AnalyticSolver(
+                    self.taught, urdf_path=self.cfg.urdf_path,
+                    orient_min_aspect=self.cfg.orient_min_aspect,
+                    orient_roll_offset_deg=self.cfg.orient_roll_offset_deg,
+                    orient_roll_extra_deg=self.cfg.orient_roll_extra_deg)
                 log.info("analytic solver ready (homography residual %.1f mm)",
                          self.solver.fit_residual_mm)
         if self.dry_run:
@@ -206,7 +210,8 @@ class Arm:
         move_smooth(self.robot, {"gripper": self.taught.gripper_open}, duration_s=0.4)
 
     # --- pick backends ------------------------------------------------
-    def pick(self, target_px: tuple[float, float] | None = None) -> bool:
+    def pick(self, target_px: tuple[float, float] | None = None,
+             orient: tuple[float, float] | None = None) -> bool:
         """Grasp one piece, end holding at the 'inspect' pose.
 
         Returns False if no grasp was ever attempted (no target, or a safety
@@ -218,21 +223,22 @@ class Arm:
             log.info("[dry-run] pick(%s)", target_px)
             return True
         if self.cfg.pick_mode == "classical":
-            if not self._pick_classical(target_px):
+            if not self._pick_classical(target_px, orient):
                 return False
         else:
             self._pick_act()
         self.move_to("inspect")  # standardize the pose for the single-piece check
         return True
 
-    def _pick_classical(self, target_px: tuple[float, float] | None) -> bool:
+    def _pick_classical(self, target_px: tuple[float, float] | None,
+                        orient: tuple[float, float] | None = None) -> bool:
         if target_px is None:
             log.warning("classical pick called with no target — skipping")
             return False
         if self.solver is not None:
             from .analytic import UnsafePoseError
             try:
-                grasp = self.solver.grasp_for_pixel(*target_px)
+                grasp = self.solver.grasp_for_pixel(*target_px, orient=orient)
             except UnsafePoseError as e:
                 log.error("REFUSING to move: %s", e)
                 return False

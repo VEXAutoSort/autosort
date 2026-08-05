@@ -26,6 +26,11 @@ arm:
                                             # camera only answers empty/holding (one gear saturates its ROI);
                                             # counting is the fingers' job. Calibrate from the run log's
                                             # 'stall=' values: single-gear stall + ~2 deg headroom.
+  # --- orientation-aware grasping (elongated pieces: standoffs, screws, beams) ---
+  orient_min_aspect: 1.4                    # rotate the claw only for pieces at least this elongated
+  orient_roll_offset_deg: 0.0               # FLIP TO 90 if the claw grabs ALONG the piece instead of across
+  orient_roll_extra_deg: 75.0               # how far wrist_roll may leave the taught band to align
+
   pick_joint_offsets:                       # global reach correction applied to EVERY pick
     shoulder_pan: 0.0                       # base rotation, deg. Arm lands right of the piece -> this nudges it; if it gets WORSE, flip the sign to -2.0. ~1 deg is roughly 1 cm at the piece.
 

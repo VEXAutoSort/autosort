@@ -89,7 +89,7 @@ class Perception:
         blobs = self._pile_blobs(top_frame)
         if not blobs:
             return None
-        area, cx, cy = max(blobs)
+        area, cx, cy, *_ = max(blobs)
         return (cx, cy)
 
     # --- shared blob detector ----------------------------------------
@@ -136,10 +136,15 @@ class Perception:
         for x0m, y0m, x1m, y1m in self._marker_zones(frame):
             cv2.rectangle(vis, (int(x0m), int(y0m)), (int(x1m), int(y1m)),
                           (160, 160, 160), 2)
-        for area, cx, cy in self._pile_blobs(frame):
+        import numpy as np
+        for area, cx, cy, angle, aspect in self._pile_blobs(frame):
             cv2.circle(vis, (int(cx), int(cy)), 10, (0, 255, 0), 2)
             cv2.putText(vis, f"{int(area)}", (int(cx) + 12, int(cy)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            if aspect >= 1.4:  # draw the long axis of elongated pieces
+                dx, dy = np.cos(np.radians(angle)) * 24, np.sin(np.radians(angle)) * 24
+                cv2.line(vis, (int(cx - dx), int(cy - dy)), (int(cx + dx), int(cy + dy)),
+                         (255, 0, 255), 2)
         if target_px is not None:
             cv2.drawMarker(vis, (int(target_px[0]), int(target_px[1])), (0, 0, 255),
                            cv2.MARKER_CROSS, 44, 3)
@@ -149,8 +154,11 @@ class Perception:
         cv2.imwrite(path, vis)
         return path
 
-    def _blobs(self, frame, roi) -> list[tuple[float, float, float]]:
-        """Pieces in `roi` as (area, cx, cy) with centroids in FULL-frame pixels.
+    def _blobs(self, frame, roi) -> list[tuple[float, float, float, float, float]]:
+        """Pieces in `roi` as (area, cx, cy, angle_deg, aspect), centroids in
+        FULL-frame pixels. angle_deg is the long-axis direction in IMAGE
+        coordinates, [0,180); aspect >= 1 is long/short side of the minAreaRect
+        (aspect ~1 = round piece, its angle is noise - callers must gate on it).
 
         Assumes pieces darker than a light background (per config decision).
         If your surface is dark and pieces are light, drop THRESH_BINARY_INV.
@@ -185,7 +193,14 @@ class Perception:
             m = cv2.moments(c)
             if m["m00"] == 0:
                 continue
-            out.append((area, ox + m["m10"] / m["m00"], oy + m["m01"] / m["m00"]))
+            (_, _), (rw, rh), ang = cv2.minAreaRect(c)
+            if rw >= rh:
+                angle = ang % 180.0
+            else:
+                angle = (ang + 90.0) % 180.0
+            aspect = (max(rw, rh) / min(rw, rh)) if min(rw, rh) > 1e-6 else 1.0
+            out.append((area, ox + m["m10"] / m["m00"], oy + m["m01"] / m["m00"],
+                        angle, aspect))
         return out
 
     def _count_blobs(self, frame, roi) -> int:

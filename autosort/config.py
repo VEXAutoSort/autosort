@@ -72,6 +72,10 @@ class ArmCfg:
                                               # fingers (side-by-side pieces stop them much wider than one).
                                               # Calibrate from 'grip check: present=' logs: single-gear stall
                                               # values plus ~2 deg of headroom.
+    orient_min_aspect: float = 1.4            # rotate the claw only for pieces at least this elongated
+                                              # (round pieces' minAreaRect angle is noise)
+    orient_roll_offset_deg: float = 0.0       # 90 if the claw grabs ALONG the piece instead of across it
+    orient_roll_extra_deg: float = 75.0       # how far wrist_roll may leave the taught band to align a piece
     pick_joint_offsets: dict[str, float] | None = None  # global reach correction, deg added to every computed grasp
     solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
     urdf_path: str | None = None              # SO-101 URDF for the analytic solver
