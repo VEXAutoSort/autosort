@@ -30,7 +30,7 @@ arm:
                                             # 'stall=' values: single-gear stall + ~2 deg headroom.
   # --- orientation-aware grasping (elongated pieces: standoffs, screws, beams) ---
   orient_min_aspect: 1.4                    # rotate the claw only for pieces at least this elongated
-  orient_roll_offset_deg: 0.0               # UNVALIDATED: flip to 90 if a genuinely elongated piece (standoff/screw, aspect 2+) is grabbed ALONG its length
+  orient_roll_offset_deg: 90.0              # VALIDATED 2026-08-05: elongated piece engaged rotation and grabbed along its length at 0, so the opening axis is the other gripper axis
   orient_roll_extra_deg: 75.0               # how far wrist_roll may leave the taught band to align
 
   pick_joint_offsets:                       # global reach correction applied to EVERY pick
