@@ -41,6 +41,7 @@ class Pipeline:
             if ref.exists():
                 self.recal = Recalibrator(ref, cfg.recal.min_markers,
                                           cfg.recal.max_correction_px)
+                self.perception.set_static_marker_zones(self.recal.ref.values())
                 log.info("ArUco drift correction active (%d reference markers)",
                          len(self.recal.ref))
             else:

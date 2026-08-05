@@ -22,12 +22,28 @@ class Perception:
         self.cfg = cfg
         self.dry_run = dry_run
         self._sim_remaining = 5  # dry-run: pretend the pile drains over a few cycles
+        self._static_marker_zones: list[tuple[float, float, float, float]] = []
+
+    def set_static_marker_zones(self, corner_arrays) -> None:
+        """Permanent marker exclusion from the captured ArUco reference.
+
+        Live per-frame detection can miss a marker (glare, a shadow edge), and
+        a missed marker would instantly become a pick candidate again. The
+        reference positions never lie by more than the drift, so they are
+        excluded unconditionally, with extra padding to absorb that drift.
+        """
+        self._static_marker_zones = []
+        for c in corner_arrays:
+            x0, y0 = c.min(axis=0)
+            x1, y1 = c.max(axis=0)
+            pad = 0.5 * max(x1 - x0, y1 - y0)
+            self._static_marker_zones.append((x0 - pad, y0 - pad, x1 + pad, y1 + pad))
 
     def pieces_on_tray(self, top_frame) -> int:
         if self.dry_run:
             self._sim_remaining = max(0, self._sim_remaining - 1)
             return self._sim_remaining
-        return self._count_blobs(top_frame, self.cfg.pile_roi)
+        return len(self._pile_blobs(top_frame))
 
     def pieces_in_gripper(self, wrist_frame) -> int:
         """0 / 1 / 2+ pieces held, judged by TOTAL dark area, not blob count.
@@ -55,13 +71,39 @@ class Perception:
         """
         if self.dry_run:
             return (480.0, 300.0)
-        blobs = self._blobs(top_frame, self.cfg.pile_roi)
+        blobs = self._pile_blobs(top_frame)
         if not blobs:
             return None
         area, cx, cy = max(blobs)
         return (cx, cy)
 
     # --- shared blob detector ----------------------------------------
+    def _pile_blobs(self, top_frame) -> list[tuple[float, float, float]]:
+        """Pile-ROI blobs with anything that is an ArUco marker excluded.
+
+        The drift-correction markers are taped in view of the pick zone and
+        their black squares are perfect "dark piece" blobs — without this
+        filter the pile never reads empty and a marker can win 'largest piece'
+        (the arm then tries to pick up a fiducial). Detection is per-frame, so
+        exclusion keeps working even as the camera drifts.
+        """
+        zones = self._marker_zones(top_frame) + self._static_marker_zones
+        return [b for b in self._blobs(top_frame, self.cfg.pile_roi)
+                if not any(x0 <= b[1] <= x1 and y0 <= b[2] <= y1
+                           for x0, y0, x1, y1 in zones)]
+
+    def _marker_zones(self, frame) -> list[tuple[float, float, float, float]]:
+        """Padded pixel bounding boxes of every ArUco marker seen in `frame`."""
+        from .recal import detect_markers
+
+        zones = []
+        for c in detect_markers(frame).values():
+            x0, y0 = c.min(axis=0)
+            x1, y1 = c.max(axis=0)
+            pad = 0.25 * max(x1 - x0, y1 - y0)
+            zones.append((x0 - pad, y0 - pad, x1 + pad, y1 + pad))
+        return zones
+
     def save_debug_frame(self, frame, target_px=None, tag="refused") -> str | None:
         """Annotated snapshot to /tmp for post-mortem (Claude can read files but
         cannot open cameras, so refused picks save what the camera saw)."""
@@ -76,7 +118,10 @@ class Perception:
         x0, y0, x1, y1 = self.cfg.pile_roi
         cv2.rectangle(vis, (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h)),
                       (0, 165, 255), 2)
-        for area, cx, cy in self._blobs(frame, self.cfg.pile_roi):
+        for x0m, y0m, x1m, y1m in self._marker_zones(frame):
+            cv2.rectangle(vis, (int(x0m), int(y0m)), (int(x1m), int(y1m)),
+                          (160, 160, 160), 2)
+        for area, cx, cy in self._pile_blobs(frame):
             cv2.circle(vis, (int(cx), int(cy)), 10, (0, 255, 0), 2)
             cv2.putText(vis, f"{int(area)}", (int(cx) + 12, int(cy)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
