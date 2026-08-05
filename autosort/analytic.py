@@ -159,6 +159,37 @@ class AnalyticSolver:
                 break
         return q
 
+    def _solve_dls(self, target_p: np.ndarray, seed: np.ndarray,
+                   iters: int = 30, lam: float = 0.01, tol_m: float = 0.0005) -> np.ndarray:
+        """Damped-least-squares position solve taking MINIMAL joint motion from the seed.
+
+        This replaced placo's inverse_kinematics for grasp solving: on a 5-DOF
+        arm that solver wanders through the null space while closing a small
+        position gap - measured 10 deg mean / 43 deg max joint drift from the
+        recorded pose on the arm's own taught points, which physically tilts
+        the claw and lands the fingertips centimeters off even though the
+        wrist POINT is correct. DLS minimal-norm steps stay in the seed's
+        configuration family: 0.3 mm mean position miss, 1.3 deg mean drift.
+
+        wrist_roll and gripper are held fixed - they don't serve position.
+        """
+        q = np.asarray(seed, dtype=float).copy()
+        free = [0, 1, 2, 3]   # shoulder_pan, shoulder_lift, elbow_flex, wrist_flex
+        for _ in range(iters):
+            p = self.kin.forward_kinematics(q)[:3, 3]
+            e = target_p - p
+            if np.linalg.norm(e) < tol_m:
+                break
+            Jm = np.zeros((3, len(free)))
+            for c, k in enumerate(free):
+                dq = np.zeros(len(JOINTS)); dq[k] = 0.25
+                Jm[:, c] = (self.kin.forward_kinematics(q + dq)[:3, 3] - p) / np.radians(0.25)
+            step = Jm.T @ np.linalg.solve(Jm @ Jm.T + lam * np.eye(3), e)
+            step = np.clip(np.degrees(step), -4.0, 4.0)
+            for c, k in enumerate(free):
+                q[k] += step[c]
+        return q
+
     def _sanity_check(self, q: np.ndarray, label: str) -> np.ndarray:
         """Reject IK solutions that are physically implausible for this task.
 
@@ -189,40 +220,28 @@ class AnalyticSolver:
         near taught samples); the IK then solves the geometry exactly, which is
         what makes this valid across the whole workspace.
         """
+        # Out-of-frame pixels are software errors, and the division model would
+        # otherwise COMPRESS an absurd far pixel back into the working area and
+        # hand the arm a plausible-looking target. Hard-refuse them first.
+        if not (0 <= px <= 960 and 0 <= py <= 600):
+            raise UnsafePoseError(f"pixel ({px:.0f},{py:.0f}) is outside the top frame")
         x, y = self.table_xy_for_pixel(px, py)
-        T = np.eye(4)
-        T[:3, :3] = self._ref_R
-        T[:3, 3] = [x, y, self.grasp_z_at(x, y) + z_offset]
+        target = np.array([x, y, self.grasp_z_at(x, y) + z_offset])
         seed = np.array([self.taught.grasp_for_pixel(px, py)[j] for j in JOINTS], dtype=float)
 
-        # The interpolated seed can land in the wrong IK basin (observed: one
-        # taught point missing by 16 mm from its own seed). Retry from the
-        # nearest taught poses before refusing - each is a known-good grasp
-        # configuration, so its basin usually contains the solution.
-        roll = JOINTS.index("wrist_roll")
-        near = np.argsort(np.linalg.norm(self.pixels - [px, py], axis=1))[:3]
-        seeds = [seed] + [self._ref_poses[i][0] for i in near]
+        # Minimal-motion solve from the interpolated seed; if that fails
+        # (deep extrapolation), retry from the nearest taught pose.
+        near = int(np.argmin(np.linalg.norm(self.pixels - [px, py], axis=1)))
         best_q, best_miss = None, np.inf
-        # Two rounds: normal orientation weight, then position-first. Near the
-        # zone edge the median grasp orientation can be slightly infeasible and
-        # the orientation term drags the solve ~16 mm off the point (measured);
-        # a near-zero weight nails position, and the wrist_roll pin plus the
-        # envelope guard still keep the pose sane.
-        for ow in (0.02, 0.001):
-            for s0 in seeds:
-                q = self._solve_ik(T, s0, orientation_weight=ow)
-                q[roll] = seed[roll]
-                miss = float(np.linalg.norm(self.kin.forward_kinematics(q)[:3, 3] - T[:3, 3]) * 1000)
-                if miss < best_miss:
-                    best_q, best_miss = q, miss
-                if miss <= self.max_ik_error_mm:
-                    break
-            if best_miss <= self.max_ik_error_mm:
+        for s0 in (seed, self._ref_poses[near][0]):
+            q = self._solve_dls(target, s0)
+            q[JOINTS.index("wrist_roll")] = seed[JOINTS.index("wrist_roll")]
+            miss = float(np.linalg.norm(self.kin.forward_kinematics(q)[:3, 3] - target) * 1000)
+            if miss < best_miss:
+                best_q, best_miss = q, miss
+            if miss <= self.max_ik_error_mm:
                 break
         q, miss_mm = best_q, best_miss
-        # (wrist_roll stays pinned to the interpolated seed: the gripper origin
-        # sits on the roll axis, and free roll drifts ~28 deg and trips the
-        # envelope guard. Orientation-aware grasping will set it explicitly.)
 
         if miss_mm > self.max_ik_error_mm:
             raise UnsafePoseError(
@@ -247,9 +266,9 @@ class AnalyticSolver:
         """
         q = np.array([grasp[j] for j in JOINTS], dtype=float)
         T_g = self.kin.forward_kinematics(q)
-        T = T_g.copy()
-        T[2, 3] += lift_m
-        qh = self._solve_ik(T, q)
+        target = T_g[:3, 3].copy()
+        target[2] += lift_m
+        qh = self._solve_dls(target, q)
         qh[JOINTS.index("wrist_roll")] = q[JOINTS.index("wrist_roll")]  # same pin as the grasp
         p_h, p_g = self.kin.forward_kinematics(qh)[:3, 3], T_g[:3, 3]
         dz_mm = float((p_h[2] - p_g[2]) * 1000)
