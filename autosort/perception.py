@@ -55,8 +55,21 @@ class Perception:
         """
         if self.dry_run:
             return 1
-        blobs = self._blobs(wrist_frame, self.cfg.gripper_roi)
-        total = sum(b[0] for b in blobs)
+        import cv2
+        import numpy as np
+
+        h, w = wrist_frame.shape[:2]
+        x0, y0, x1, y1 = self.cfg.gripper_roi
+        crop = cv2.cvtColor(wrist_frame[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)],
+                            cv2.COLOR_BGR2GRAY)
+        # Background is the 90th percentile, NOT the median: a held piece fills
+        # most of this tight ROI, so the median IS the piece and "darker than
+        # median" finds nothing (measured 2026-08-05: held median 64 vs true
+        # background 166). The bright background stays visible around the piece.
+        bg = float(np.percentile(crop, 90))
+        mask = (crop < bg - self.cfg.contrast_margin).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        total = int(mask.sum())
         if total < self.cfg.min_piece_area:
             return 0
         if total >= self.cfg.multi_piece_area:
