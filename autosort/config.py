@@ -80,6 +80,8 @@ class ArmCfg:
     solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
     urdf_path: str | None = None              # SO-101 URDF for the analytic solver
     hover_lift_m: float = 0.08                # how far straight up the hover pose sits (analytic only)
+    grasp_z_offset_m: float = 0.0             # added to every grasp height; NEGATIVE = deeper (flat pieces
+                                              # like spacers need the fingertips lower than the gear-taught z)
     act_fps: float = 30.0                     # control rate for the ACT pick loop
     policy_camera_names: dict[str, str] | None = None  # robot cam name -> dataset camera key
 

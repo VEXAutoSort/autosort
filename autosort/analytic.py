@@ -308,6 +308,8 @@ class AnalyticSolver:
         if not (0 <= px <= 960 and 0 <= py <= 600):
             raise UnsafePoseError(f"pixel ({px:.0f},{py:.0f}) is outside the top frame")
         x, y = self.table_xy_for_pixel(px, py)
+        # clamp: a config typo here would drive the fingertips into the table
+        z_offset = float(np.clip(z_offset, -0.010, 0.020))
         target = np.array([x, y, self.grasp_z_at(x, y) + z_offset])
         seed = np.array([self.taught.grasp_for_pixel(px, py)[j] for j in JOINTS], dtype=float)
 

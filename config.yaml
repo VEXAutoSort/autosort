@@ -20,6 +20,8 @@ arm:
                                             # interpolate = old taught-pose blending
   urdf_path: /tmp/so101_urdf/so101_nomesh.urdf   # SO-101 geometry for the analytic solver
   hover_lift_m: 0.08                        # straight-up clearance above the grasp, metres
+  grasp_z_offset_m: 0.0                     # added to every grasp height; NEGATIVE = fingertips deeper.
+                                            # Try -0.004 if flat pieces (spacers) slip out under the tips.
   taught_file: null                         # null = taught.json in repo root (created by tools/teach.py)
   gripper_holding_margin: 1.0               # deg ABOVE commanded-closed that counts as "holding" (singles stall 3.3-3.6 with closed=1.5; line at 2.5 clears them all)
   two_piece_stall: 5.5                      # stall AT/ABOVE this = 2+ pieces (calibrated 2026-08-05: 10 single-gear picks stalled 3.3-3.6)
@@ -28,7 +30,7 @@ arm:
                                             # 'stall=' values: single-gear stall + ~2 deg headroom.
   # --- orientation-aware grasping (elongated pieces: standoffs, screws, beams) ---
   orient_min_aspect: 1.4                    # rotate the claw only for pieces at least this elongated
-  orient_roll_offset_deg: 0.0               # FLIP TO 90 if the claw grabs ALONG the piece instead of across
+  orient_roll_offset_deg: 90.0              # 90 determined empirically 2026-08-05 (spacer test: 0 grabbed along the piece)
   orient_roll_extra_deg: 75.0               # how far wrist_roll may leave the taught band to align
 
   pick_joint_offsets:                       # global reach correction applied to EVERY pick

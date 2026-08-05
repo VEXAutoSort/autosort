@@ -238,7 +238,8 @@ class Arm:
         if self.solver is not None:
             from .analytic import UnsafePoseError
             try:
-                grasp = self.solver.grasp_for_pixel(*target_px, orient=orient)
+                grasp = self.solver.grasp_for_pixel(*target_px, orient=orient,
+                                                    z_offset=self.cfg.grasp_z_offset_m)
             except UnsafePoseError as e:
                 log.error("REFUSING to move: %s", e)
                 return False
