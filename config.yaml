@@ -21,8 +21,8 @@ arm:
   urdf_path: /tmp/so101_urdf/so101_nomesh.urdf   # SO-101 geometry for the analytic solver
   hover_lift_m: 0.08                        # straight-up clearance above the grasp, metres
   taught_file: null                         # null = taught.json in repo root (created by tools/teach.py)
-  gripper_holding_margin: 2.0               # deg ABOVE commanded-closed that counts as "holding a piece"
-  two_piece_stall: 10.5                     # stall AT/ABOVE this = 2+ pieces between the fingers. The wrist
+  gripper_holding_margin: 1.0               # deg ABOVE commanded-closed that counts as "holding" (singles stall 3.3-3.6 with closed=1.5; line at 2.5 clears them all)
+  two_piece_stall: 5.5                      # stall AT/ABOVE this = 2+ pieces (calibrated 2026-08-05: 10 single-gear picks stalled 3.3-3.6)
                                             # camera only answers empty/holding (one gear saturates its ROI);
                                             # counting is the fingers' job. Calibrate from the run log's
                                             # 'stall=' values: single-gear stall + ~2 deg headroom.
