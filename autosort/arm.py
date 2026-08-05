@@ -47,7 +47,8 @@ class Arm:
             self.taught = Taught.load(self.cfg.taught_file)
             if self.cfg.pick_mode == "classical" and self.cfg.solver == "analytic":
                 from .analytic import AnalyticSolver
-                self.solver = AnalyticSolver(self.taught, urdf_path=self.cfg.urdf_path)
+                self.solver = AnalyticSolver(self.taught, urdf_path=self.cfg.urdf_path,
+                                             radial_offset_m=self.cfg.grasp_radial_offset_m)
                 log.info("analytic solver ready (homography residual %.1f mm)",
                          self.solver.fit_residual_mm)
         if self.dry_run:

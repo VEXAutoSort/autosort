@@ -70,6 +70,9 @@ class ArmCfg:
     gripper_holding_margin: float = 4.0       # deg short of taught-closed that means "holding a piece"
     pick_joint_offsets: dict[str, float] | None = None  # global reach correction, deg added to every computed grasp
     solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
+    grasp_radial_offset_m: float = 0.0        # shift every grasp toward the base (m). The near jaw is FIXED:
+                                              # centering on the piece makes it clip the piece's near edge, so
+                                              # back off until the moving jaw does the sweeping.
     urdf_path: str | None = None              # SO-101 URDF for the analytic solver
     hover_lift_m: float = 0.08                # how far straight up the hover pose sits (analytic only)
     act_fps: float = 30.0                     # control rate for the ACT pick loop

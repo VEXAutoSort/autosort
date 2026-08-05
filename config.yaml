@@ -20,6 +20,10 @@ arm:
                                             # interpolate = old taught-pose blending
   urdf_path: /tmp/so101_urdf/so101_nomesh.urdf   # SO-101 geometry for the analytic solver
   hover_lift_m: 0.08                        # straight-up clearance above the grasp, metres
+  grasp_radial_offset_m: 0.006              # shift every grasp toward the base, metres. The jaw NEARER the
+                                            # robot is fixed (only the far jaw moves), so a piece-centered
+                                            # grasp clips the piece's near edge. Raise if the fixed jaw still
+                                            # clips; lower if the moving jaw now misses the piece entirely.
   taught_file: null                         # null = taught.json in repo root (created by tools/teach.py)
   gripper_holding_margin: 2.0               # deg ABOVE commanded-closed that counts as "holding a piece"
   pick_joint_offsets:                       # global reach correction applied to EVERY pick
