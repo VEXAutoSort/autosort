@@ -134,8 +134,14 @@ class Pipeline:
                                 "holding" if pos_holding else "empty")
                 else:
                     n = sorted(counts)[len(counts) // 2]
-                    log.info("hold check: position says %s, wrist camera sees %d piece(s) %s",
-                             "holding" if pos_holding else "empty", n, counts)
+                # 1-vs-2 is the FINGERS' call, not the camera's: one gear fills
+                # ~67% of the tight wrist ROI, so area saturates and can't count.
+                # Two side-by-side pieces stall the fingers measurably wider.
+                stall = self.arm.gripper_pos()
+                if n == 1 and stall >= self.cfg.arm.two_piece_stall and not self.cfg.run.dry_run:
+                    n = 2
+                log.info("hold check: position says %s, wrist sees %s, stall=%.1f -> %d piece(s)",
+                         "holding" if pos_holding else "empty", counts or "n/a", stall, n)
                 if n >= 2:
                     log.info("grabbed %d pieces — dropping back", n)
                     self.arm.drop_back()

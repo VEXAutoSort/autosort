@@ -46,12 +46,14 @@ class Perception:
         return len(self._pile_blobs(top_frame))
 
     def pieces_in_gripper(self, wrist_frame) -> int:
-        """0 / 1 / 2+ pieces held, judged by TOTAL dark area, not blob count.
+        """0 or 1: is anything held? Judged by TOTAL dark area in the ROI.
 
-        Blob counting is fragile here: a single gear gets split into two blobs by
-        a fingertip crossing it or by its own spokes, which used to read as "2
-        pieces" and trigger a needless drop-back. Total area doesn't care how the
-        region is carved up - two pieces genuinely cover about twice the area.
+        This deliberately does NOT try to count 2+: one gear already covers
+        ~67% of the tight fingertip ROI (measured 13350 of 20000 px), so area
+        saturates and normal grip-pose variance pushed single gears over any
+        multi-piece threshold (field-observed false "2"s). Telling one piece
+        from two is the gripper STALL WIDTH's job (pipeline) - two side-by-side
+        pieces stop the fingers much wider than one.
         """
         if self.dry_run:
             return 1
@@ -69,12 +71,7 @@ class Perception:
         bg = float(np.percentile(crop, 90))
         mask = (crop < bg - self.cfg.contrast_margin).astype(np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        total = int(mask.sum())
-        if total < self.cfg.min_piece_area:
-            return 0
-        if total >= self.cfg.multi_piece_area:
-            return 2
-        return 1
+        return 1 if int(mask.sum()) >= self.cfg.min_piece_area else 0
 
     def pile_blobs_sorted(self, top_frame) -> list[tuple[float, float, float]]:
         """All pile blobs, biggest first — lets the caller apply its own filters

@@ -68,6 +68,10 @@ class ArmCfg:
     pick_mode: str = "classical"              # classical | act
     taught_file: str | None = None            # taught.json path (None = repo root)
     gripper_holding_margin: float = 4.0       # deg short of taught-closed that means "holding a piece"
+    two_piece_stall: float = 10.5             # gripper stall position AT/ABOVE this = 2+ pieces between the
+                                              # fingers (side-by-side pieces stop them much wider than one).
+                                              # Calibrate from 'grip check: present=' logs: single-gear stall
+                                              # values plus ~2 deg of headroom.
     pick_joint_offsets: dict[str, float] | None = None  # global reach correction, deg added to every computed grasp
     solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
     urdf_path: str | None = None              # SO-101 URDF for the analytic solver
@@ -84,7 +88,6 @@ class PerceptionCfg:
     empty_frames: int
     max_piece_area: int = 10000   # px^2 - ignore blobs bigger than a piece (the drop box, a hand, shadows)
     contrast_margin: int = 45     # how much darker than the surface a pixel must be to count as piece (shadows are ~15-25)
-    multi_piece_area: int = 3000  # total dark px^2 in the gripper ROI that means 2+ pieces (one gear is well under this)
 
 
 @dataclass
