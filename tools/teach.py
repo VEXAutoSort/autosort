@@ -74,7 +74,7 @@ def main() -> None:
                 pass
             _t.sleep(2)
     robot.bus.disable_torque()
-    print("TORQUE RELEASED — move the arm by hand. Keys: G H M I B O C S Q")
+    print("TORQUE RELEASED — move the arm by hand. Keys: G H M I B O C S Q  (U = undo last grid point)")
 
     top = cfg.cameras["top"]
     cap = cv2.VideoCapture(top.index)
@@ -183,6 +183,13 @@ def main() -> None:
             if pending_pixel is not None:
                 pending_pixel = None
                 print("locked target cancelled")
+        elif key == ord("u"):
+            if not data["grid"]:
+                print("no grid points to undo")
+                continue
+            gone = data["grid"].pop()
+            print(f"undid point {len(data['grid']) + 1} at pixel "
+                  f"({gone['pixel'][0]:.0f},{gone['pixel'][1]:.0f}) - re-teach it (S to persist)")
         elif key == ord("h"):
             if hover_ref is None:
                 print("teach a grid point first, then lift from it")
