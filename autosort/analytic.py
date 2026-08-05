@@ -36,8 +36,7 @@ DEFAULT_URDF = Path("/tmp/so101_urdf/so101_nomesh.urdf")
 
 class AnalyticSolver:
     def __init__(self, taught, urdf_path: str | Path | None = None,
-                 target_frame: str = "gripper_frame_link",
-                 radial_offset_m: float = 0.0):
+                 target_frame: str = "gripper_frame_link"):
         from lerobot.model.kinematics import RobotKinematics
 
         self.urdf_path = Path(urdf_path or DEFAULT_URDF)
@@ -49,7 +48,6 @@ class AnalyticSolver:
         self.kin = RobotKinematics(urdf_path=str(self.urdf_path),
                                    target_frame_name=target_frame, joint_names=JOINTS)
         self.taught = taught
-        self.radial_offset_m = radial_offset_m
         self.joint_margin_deg = 25.0   # how far outside the taught envelope a solve may go
         self.max_ik_error_mm = 15.0    # reject solutions that miss the requested point
         self._fit(taught)
@@ -140,14 +138,6 @@ class AnalyticSolver:
         what makes this valid across the whole workspace.
         """
         x, y = self.table_xy_for_pixel(px, py)
-        # The near jaw is fixed; only the far one moves. A grasp centered on the
-        # piece rams the fixed jaw into the piece's near edge, so back the whole
-        # gripper off toward the base and let the moving jaw do the closing.
-        if self.radial_offset_m:
-            r = float(np.hypot(x, y))
-            if r > 1e-6:
-                x -= self.radial_offset_m * x / r
-                y -= self.radial_offset_m * y / r
         T = np.eye(4)
         T[:3, :3] = self._ref_R
         T[:3, 3] = [x, y, self.grasp_z + z_offset]
