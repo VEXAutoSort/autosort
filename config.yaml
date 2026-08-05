@@ -57,6 +57,17 @@ perception:
   multi_piece_area: 3000             # total dark area in the gripper ROI meaning 2+ pieces; raise if one gear is called two
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
 
+# --- ArUco camera-drift auto-correction ----------------------
+# 4 markers taped permanently around the pick zone (print: tools/make_markers.py,
+# capture reference: tools/capture_markers.py WHEN PICKING IS ACCURATE). Each
+# cycle the pipeline re-detects them and cancels camera drift vs the reference.
+# The camera is 2-degree-sensitive: 1 deg ~ 8 mm reach error, 2 deg = missed grasp.
+recal:
+  enabled: true                      # inert until markers_ref.json exists
+  ref_file: null                     # null = markers_ref.json in repo root
+  min_markers: 3                     # fewer visible than this = refuse correction, skip cycle
+  max_correction_px: 40              # bigger shift = camera was MOVED; re-verify + re-capture instead
+
 # --- Classifier (enclosure not built yet) --------------------
 classifier:
   enabled: false                     # flip to true once the box + its camera exist

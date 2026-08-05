@@ -30,6 +30,23 @@ class Pipeline:
         self.classifier = Classifier(cfg.classifier, cfg.cameras.get("box"), dry)
         self.router = Router(cfg.router, dry)
 
+        # ArUco drift correction: active only when enabled AND a reference was
+        # captured (tools/capture_markers.py). Absent reference = feature off.
+        self.recal = None
+        if cfg.recal.enabled and not dry:
+            from pathlib import Path
+
+            from .recal import Recalibrator
+            ref = Path(cfg.recal.ref_file) if cfg.recal.ref_file else Path("markers_ref.json")
+            if ref.exists():
+                self.recal = Recalibrator(ref, cfg.recal.min_markers,
+                                          cfg.recal.max_correction_px)
+                log.info("ArUco drift correction active (%d reference markers)",
+                         len(self.recal.ref))
+            else:
+                log.info("no ArUco reference (%s) - drift correction off. Capture one "
+                         "with tools/capture_markers.py when picking is accurate.", ref)
+
     def setup(self) -> None:
         self.arm.connect()
         self.classifier.connect()
@@ -71,6 +88,18 @@ class Pipeline:
                     log.info("no pick target found — retrying")
                     fails += 1
                     continue
+                if self.recal is not None and target_px is not None:
+                    from .recal import RecalError
+                    try:
+                        H = self.recal.correction(top_frame)
+                        target_px = self.recal.apply(H, *target_px)
+                    except RecalError as e:
+                        # picking uncorrected after a failed check could aim a
+                        # drifted camera's pixels at the wrong table spot - skip
+                        log.error("drift correction refused (%s) - skipping cycle", e)
+                        fails += 1
+                        time.sleep(1.0)
+                        continue
                 self.arm.pick(target_px)
                 # Two holding signals: gripper position (fooled by gears' spokes)
                 # and the wrist camera (the deciding vote). Empty only if BOTH say so.

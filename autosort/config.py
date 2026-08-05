@@ -97,6 +97,15 @@ class ClassifierCfg:
 
 
 @dataclass
+class RecalCfg:
+    """ArUco camera-drift auto-correction (autosort/recal.py)."""
+    enabled: bool = True          # active only once tools/capture_markers.py has saved a reference
+    ref_file: str | None = None   # None = markers_ref.json in repo root
+    min_markers: int = 3          # markers required in view to trust a correction
+    max_correction_px: float = 40.0  # bigger implied shift = camera was MOVED; refuse and skip
+
+
+@dataclass
 class RouterCfg:
     port: str
     baud: int
@@ -111,6 +120,7 @@ class Config:
     arm: ArmCfg
     cameras: dict[str, CameraCfg]
     perception: PerceptionCfg
+    recal: RecalCfg
     classifier: ClassifierCfg
     router: RouterCfg
 
@@ -137,6 +147,7 @@ class Config:
             arm=ArmCfg(**raw["arm"]),
             cameras={name: CameraCfg(**c) for name, c in raw["cameras"].items()},
             perception=PerceptionCfg(**raw["perception"]),
+            recal=RecalCfg(**raw.get("recal", {})),
             classifier=ClassifierCfg(**raw["classifier"]),
             router=RouterCfg(**raw["router"]),
         )
