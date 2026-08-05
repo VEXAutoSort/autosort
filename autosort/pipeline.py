@@ -52,8 +52,7 @@ class Pipeline:
         self.arm.connect()
         self.classifier.connect()
         self.router.connect()
-        self.arm.home()
-        self.arm.open_gripper() if hasattr(self.arm, "open_gripper") else None
+        self.arm.home()   # parks the fingers closed - the open claw must never sit in pile_roi during detection
         self.router.home()
 
     def run(self) -> None:
@@ -110,17 +109,25 @@ class Pipeline:
                 # Two holding signals: gripper position (fooled by gears' spokes)
                 # and the wrist camera (the deciding vote). Empty only if BOTH say so.
                 pos_holding = self.arm.gripper_holding()
-                wrist_frame = self.arm.frame("wrist")
-                if wrist_frame is None:
+                # median of 3 samples: a single frame can be grabbed mid-settle
+                # (motion blur, claw shadow) and vote a phantom piece in or a
+                # real one out. Transients don't survive a median.
+                counts = []
+                for _ in range(3):
+                    wrist_frame = self.arm.frame("wrist")
+                    if wrist_frame is not None:
+                        counts.append(self.perception.pieces_in_gripper(wrist_frame))
+                    time.sleep(0.15)
+                if not counts:
                     # camera dropped out: trust the gripper position alone rather
                     # than reading "no frame" as "no piece"
                     n = 1 if pos_holding else 0
                     log.warning("wrist camera unavailable - using gripper position only (%s)",
                                 "holding" if pos_holding else "empty")
                 else:
-                    n = self.perception.pieces_in_gripper(wrist_frame)
-                    log.info("hold check: position says %s, wrist camera sees %d piece(s)",
-                             "holding" if pos_holding else "empty", n)
+                    n = sorted(counts)[len(counts) // 2]
+                    log.info("hold check: position says %s, wrist camera sees %d piece(s) %s",
+                             "holding" if pos_holding else "empty", n, counts)
                 if n >= 2:
                     log.info("grabbed %d pieces — dropping back", n)
                     self.arm.drop_back()

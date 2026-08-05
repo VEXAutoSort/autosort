@@ -311,12 +311,23 @@ class Arm:
         move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_closed}, duration_s=1.2)
         move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_open}, duration_s=0.4)
         time.sleep(0.3)
+        self._park_fingers()
+
+    def _park_fingers(self) -> None:
+        """Close the empty claw to its smallest silhouette.
+
+        Detection happens while the arm sits at home, and a WIDE-open moving jaw
+        can poke into pile_roi and read as a piece. Parked = closed; the pick
+        sequence re-opens the fingers itself before descending.
+        """
+        move_smooth(self.robot, {"gripper": self.taught.gripper_closed}, duration_s=0.3)
 
     def home(self) -> None:
         if self.dry_run:
             log.info("[dry-run] home()")
             return
         self.move_to("home")
+        self._park_fingers()
 
     def move_to(self, pose_name: str) -> None:
         """Move to a taught pose (falls back to config.yaml poses if not taught).
