@@ -331,13 +331,16 @@ class Arm:
         self._park_fingers()
 
     def _park_fingers(self) -> None:
-        """Close the empty claw to its smallest silhouette.
+        """Rest the empty claw nearly closed - small silhouette, ZERO force.
 
         Detection happens while the arm sits at home, and a WIDE-open moving jaw
-        can poke into pile_roi and read as a piece. Parked = closed; the pick
-        sequence re-opens the fingers itself before descending.
+        can poke into pile_roi and read as a piece - so park near closed. But
+        NOT at gripper_closed: since the recalibration that commands the fingers
+        past physical touch, parking there stalls the servo continuously and
+        trips its overload protection (field incident: gripper servo dropped off
+        the bus in overload). +3 keeps the fingers a hair apart, force-free.
         """
-        move_smooth(self.robot, {"gripper": self.taught.gripper_closed}, duration_s=0.3)
+        move_smooth(self.robot, {"gripper": self.taught.gripper_closed + 3.0}, duration_s=0.3)
 
     def home(self) -> None:
         if self.dry_run:
