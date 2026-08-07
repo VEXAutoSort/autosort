@@ -83,10 +83,13 @@ class AnalyticSolver:
         self.table_xy = np.asarray(xy, dtype=float)
         self.grasp_z = float(np.median(z))
 
-        # distortion: 1-D search over k, refitting H each time (fast, stable
-        # with a spread grid; with few clustered points it just finds ~0 gain)
+        # distortion: 1-D search over k, refitting H each time. Needs a DENSE
+        # grid: with few points the extra parameter overfits noise and pegs at
+        # the search boundary (observed k=-0.50 on a 5-point mid-teach grid),
+        # so below 10 points the model stays pure homography (k=0).
+        ks = np.linspace(-0.5, 2.0, 126) if len(self.pixels) >= 10 else [0.0]
         best = (0.0, None, np.inf)
-        for k in np.linspace(-0.5, 2.0, 126):
+        for k in ks:
             up = self._undistort(self.pixels, k)
             H = _fit_homography(up, self.table_xy)
             proj = np.hstack([up, np.ones((len(up), 1))]) @ H.T

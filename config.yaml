@@ -60,7 +60,7 @@ cameras:
 # --- Perception (classical CV — no training needed) ----------
 # Assumes LIGHT surface with DARKER pieces (team decision 2026-07).
 perception:
-  pile_roi: [0.22, 0.18, 0.83, 0.45] # [left, top, right, bottom] fractions of the TOP frame (tightened 2026-08-05; coarse gate only - reach is an annular sector, see reach filter)
+  pile_roi: [0.205, 0.08, 0.815, 0.375] # [left, top, right, bottom] fractions of the TOP frame (tuned 2026-08-07, new table; coarse gate only - reach is an annular sector)
   gripper_roi: [0.71, 0.38, 0.96, 0.64] # region of the WRIST frame where a held piece shows up (tuned live 2026-08-05, new camera)
   min_piece_area: 300                # px^2 — ignore specks smaller than this
   max_piece_area: 10000              # px^2 — ignore anything bigger than a piece (the box, hands)
