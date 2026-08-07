@@ -67,6 +67,20 @@ perception:
   contrast_margin: 45                # min darkness below the surface to count as a piece; raise if shadows count, lower if pieces vanish
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
 
+# --- Piece types: classification windows + grasp profiles ----
+# A detected blob matches the FIRST profile whose area/aspect window contains
+# it (most specific first); no match = 'unknown' = today's default behavior.
+# AREA WINDOWS ARE PLACEHOLDERS: tune from the run log's
+#   "target: area=... aspect=... -> label" lines at the NEW camera height.
+# Grasp fields all optional: grasp_z_offset_m (negative=deeper), open_width,
+# stall_min/stall_max (expected single-piece stall band; max+2 = "grabbed 2").
+pieces:
+  standoff: {min_aspect: 2.0, min_area: 200}                    # long thin metal/plastic post
+  screw:    {min_aspect: 2.0, min_area: 60,  max_area: 199}     # smaller than a standoff, also elongated
+  gear:     {max_aspect: 1.35, min_area: 700}                   # big and round
+  spacer:   {max_aspect: 1.35, min_area: 200, max_area: 699}    # small and round
+  nut:      {max_aspect: 1.35, min_area: 60,  max_area: 199}    # tiny and round-ish
+
 # --- ArUco camera-drift auto-correction ----------------------
 # 4 markers taped permanently around the pick zone (print: tools/make_markers.py,
 # capture reference: tools/capture_markers.py WHEN PICKING IS ACCURATE). Each

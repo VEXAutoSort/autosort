@@ -92,6 +92,18 @@ class Pipeline:
                     else:
                         target_px = None
 
+                # geometry classification from the top-view footprint: selects
+                # the per-piece grasp profile NOW and the routing label later.
+                # Every pick logs its features - that log IS the tuning data
+                # for the piece windows in config.
+                label, profile = "unknown", None
+                if target_px is not None and not self.cfg.run.dry_run:
+                    label = Classifier.classify_geometry(
+                        reachable[0][0], reachable[0][4], self.cfg.pieces)
+                    profile = self.cfg.pieces.get(label)
+                    log.info("target: area=%d aspect=%.2f angle=%.0f -> '%s'",
+                             int(reachable[0][0]), reachable[0][4], reachable[0][3], label)
+
                 # 2. done? nothing REACHABLE left, confirmed over several frames.
                 if remaining == 0:
                     empty_reads += 1
@@ -113,7 +125,7 @@ class Pipeline:
                         fails += 1
                         time.sleep(1.0)
                         continue
-                if not self.arm.pick(target_px, target_orient):
+                if not self.arm.pick(target_px, target_orient, profile):
                     fails += 1
                     dbg = self.perception.save_debug_frame(top_frame, target_px)
                     if dbg:
@@ -143,7 +155,10 @@ class Pipeline:
                 # ~67% of the tight wrist ROI, so area saturates and can't count.
                 # Two side-by-side pieces stall the fingers measurably wider.
                 stall = self.arm.gripper_pos()
-                if n == 1 and stall >= self.cfg.arm.two_piece_stall and not self.cfg.run.dry_run:
+                two_thresh = self.cfg.arm.two_piece_stall
+                if profile is not None and profile.stall_max is not None:
+                    two_thresh = profile.stall_max + 2.0   # piece-specific band beats the global gear value
+                if n == 1 and stall >= two_thresh and not self.cfg.run.dry_run:
                     n = 2
                 log.info("hold check: position says %s, wrist sees %s, stall=%.1f -> %d piece(s)",
                          "holding" if pos_holding else "empty", counts or "n/a", stall, n)
@@ -157,10 +172,14 @@ class Pipeline:
                     fails += 1
                     continue
 
-                # 3. place -> classify -> route
+                # 3. place -> classify -> route. The enclosure classifier
+                # (when its hardware exists) overrides the geometry label.
                 self.arm.place_in_box()
-                label, conf = self.classifier.classify()
-                log.info("classified: %s (%.2f)", label, conf)
+                if self.cfg.classifier.enabled or self.cfg.run.dry_run:
+                    label, conf = self.classifier.classify()
+                    log.info("classified: %s (%.2f)", label, conf)
+                else:
+                    log.info("sorted as '%s' (top-view geometry)", label)
                 self.router.route_to(label)
 
                 fails = 0

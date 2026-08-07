@@ -211,7 +211,8 @@ class Arm:
 
     # --- pick backends ------------------------------------------------
     def pick(self, target_px: tuple[float, float] | None = None,
-             orient: tuple[float, float] | None = None) -> bool:
+             orient: tuple[float, float] | None = None,
+             profile=None) -> bool:
         """Grasp one piece, end holding at the 'inspect' pose.
 
         Returns False if no grasp was ever attempted (no target, or a safety
@@ -223,7 +224,7 @@ class Arm:
             log.info("[dry-run] pick(%s)", target_px)
             return True
         if self.cfg.pick_mode == "classical":
-            if not self._pick_classical(target_px, orient):
+            if not self._pick_classical(target_px, orient, profile):
                 return False
         else:
             self._pick_act()
@@ -231,15 +232,17 @@ class Arm:
         return True
 
     def _pick_classical(self, target_px: tuple[float, float] | None,
-                        orient: tuple[float, float] | None = None) -> bool:
+                        orient: tuple[float, float] | None = None,
+                        profile=None) -> bool:
         if target_px is None:
             log.warning("classical pick called with no target — skipping")
             return False
+        z_off = self.cfg.grasp_z_offset_m + (profile.grasp_z_offset_m if profile else 0.0)
         if self.solver is not None:
             from .analytic import UnsafePoseError
             try:
                 grasp = self.solver.grasp_for_pixel(*target_px, orient=orient,
-                                                    z_offset=self.cfg.grasp_z_offset_m)
+                                                    z_offset=z_off)
             except UnsafePoseError as e:
                 log.error("REFUSING to move: %s", e)
                 return False
@@ -257,6 +260,8 @@ class Arm:
         else:
             hover = self.taught.hover_for(grasp)
         open_g, closed_g = self.taught.gripper_open, self.taught.gripper_closed
+        if profile is not None and profile.open_width is not None:
+            open_g = profile.open_width   # e.g. narrower approach for small pieces in clutter
 
         # set the gripper width FIRST, in place, so it stays constant through
         # the whole approach instead of interpolating from wherever it was

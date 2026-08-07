@@ -106,6 +106,25 @@ class ClassifierCfg:
 
 
 @dataclass
+class PieceProfile:
+    """Per-piece-type classification rule + grasp profile.
+
+    Classification: a detected blob matches the FIRST profile (config order)
+    whose area/aspect window contains it; no match = 'unknown'. Grasp fields
+    default to the global/taught values, so an untuned profile behaves exactly
+    like today's single-piece-type system.
+    """
+    min_area: float = 0.0          # px^2 window in the TOP view (camera-height dependent - retune on remount)
+    max_area: float = 1e9
+    min_aspect: float = 1.0        # minAreaRect long/short side
+    max_aspect: float = 99.0
+    grasp_z_offset_m: float = 0.0  # added to arm.grasp_z_offset_m for this piece (negative = deeper)
+    open_width: float | None = None   # approach opening; None = taught gripper_open
+    stall_min: float | None = None    # expected single-piece stall band; None = don't judge
+    stall_max: float | None = None    # stall above max+2 = 2+ pieces (overrides two_piece_stall)
+
+
+@dataclass
 class RecalCfg:
     """ArUco camera-drift auto-correction (autosort/recal.py)."""
     enabled: bool = True          # active only once tools/capture_markers.py has saved a reference
@@ -130,6 +149,7 @@ class Config:
     cameras: dict[str, CameraCfg]
     perception: PerceptionCfg
     recal: RecalCfg
+    pieces: dict[str, PieceProfile]
     classifier: ClassifierCfg
     router: RouterCfg
 
@@ -157,6 +177,7 @@ class Config:
             cameras={name: CameraCfg(**c) for name, c in raw["cameras"].items()},
             perception=PerceptionCfg(**raw["perception"]),
             recal=RecalCfg(**raw.get("recal", {})),
+            pieces={name: PieceProfile(**p) for name, p in (raw.get("pieces") or {}).items()},
             classifier=ClassifierCfg(**raw["classifier"]),
             router=RouterCfg(**raw["router"]),
         )

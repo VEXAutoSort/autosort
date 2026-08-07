@@ -46,6 +46,19 @@ class Classifier:
         else:
             log.warning("no classifier at %s — labelling everything 'unknown'", self.cfg.model)
 
+    @staticmethod
+    def classify_geometry(area: float, aspect: float, pieces: dict) -> str:
+        """Label a piece from its TOP-VIEW footprint - no model, no enclosure.
+
+        First profile (config order) whose area/aspect window contains the
+        blob wins; put the most specific windows first. No match = 'unknown'
+        (which also keeps every grasp value at its proven default).
+        """
+        for name, p in pieces.items():
+            if p.min_area <= area <= p.max_area and p.min_aspect <= aspect <= p.max_aspect:
+                return name
+        return "unknown"
+
     def classify(self) -> tuple[str, float]:
         """Grab a frame from the box cam and return (label, confidence)."""
         if not self.cfg.enabled:
