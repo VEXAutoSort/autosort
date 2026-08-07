@@ -62,7 +62,7 @@ cameras:
 perception:
   pile_roi: [0.205, 0.08, 0.815, 0.375] # [left, top, right, bottom] fractions of the TOP frame (tuned 2026-08-07, new table; coarse gate only - reach is an annular sector)
   gripper_roi: [0.71, 0.38, 0.96, 0.64] # region of the WRIST frame where a held piece shows up (tuned live 2026-08-05, new camera)
-  min_piece_area: 300                # px^2 — ignore specks smaller than this
+  min_piece_area: 60                 # px^2 — speck floor. 300 silently deleted nylocks+screws (~90-200 px at this camera height; gear ~1200)
   max_piece_area: 10000              # px^2 — ignore anything bigger than a piece (the box, hands)
   contrast_margin: 45                # min darkness below the surface to count as a piece; raise if shadows count, lower if pieces vanish
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
@@ -77,15 +77,25 @@ perception:
 # stall_min/stall_max (expected single-piece stall band; max+2 = "grabbed 2").
 # Deferred parts: thin axles + washers (need touch-down sensing, later).
 pieces:
-  sprocket:      {max_aspect: 1.4, min_area: 700, color: red}      # gear-sized, red
-  gear:          {max_aspect: 1.4, min_area: 900, color: dark}
-  hs_axle_lock:  {max_aspect: 1.4, min_area: 450, max_area: 899, color: dark}  # black, slightly smaller than gear
-  spacer_white:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: white}
-  spacer_black:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: dark}
-  shaft_collar:  {max_aspect: 1.6, min_area: 80,  max_area: 449, color: gray}  # small gray ring
-  nylock:        {max_aspect: 1.6, min_area: 60,  max_area: 300}               # small gray/white nut (overlaps collar - tune!)
-  plastic_screw: {min_aspect: 2.0, color: white}                               # white, one length
-  screw:         {min_aspect: 2.0, min_area: 60}                               # metal, any length (area spans lengths)
+  # measured 2026-08-07 (first tuning run): sprocket area=1211 stall=10.4;
+  # hs_axle_lock area=729 stall=7.2; spacer_black area=316-346 stall=4.0-4.1;
+  # gear ~1300 stall 12.4-12.7 (earlier runs). Small pieces still placeholder.
+  sprocket:      {max_aspect: 1.4, min_area: 900, color: red,
+                  stall_min: 9.0, stall_max: 11.5}
+  gear:          {max_aspect: 1.4, min_area: 900, color: dark,
+                  stall_min: 11.5, stall_max: 13.5}
+  hs_axle_lock:  {max_aspect: 1.4, min_area: 450, max_area: 899, color: dark,
+                  stall_min: 6.0, stall_max: 8.5}
+  spacer_white:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: white,
+                  stall_min: 3.0, stall_max: 5.5}
+  spacer_black:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: dark,
+                  stall_min: 3.0, stall_max: 5.5}
+  shaft_collar:  {max_aspect: 1.6, min_area: 80,  max_area: 449, color: gray,
+                  held_min_area: 1500}                     # small gray ring - TUNE from next run
+  nylock:        {max_aspect: 1.6, min_area: 60,  max_area: 300,
+                  held_min_area: 800}                      # tiny nut - TUNE from next run
+  plastic_screw: {min_aspect: 2.0, color: white, held_min_area: 800}
+  screw:         {min_aspect: 2.0, min_area: 60, held_min_area: 800}  # metal, any length
 
 # --- ArUco camera-drift auto-correction ----------------------
 # 4 markers taped permanently around the pick zone (print: tools/make_markers.py,

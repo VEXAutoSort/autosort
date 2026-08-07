@@ -239,8 +239,8 @@ class Perception:
             if v < 90:
                 return "dark"
             return "white" if v > 180 else "gray"
-        if h < 12 or h > 168:          # OpenCV hue wraps at 180
-            return "red"
+        if h < 25 or h > 168:          # OpenCV hue wraps at 180; <25 includes
+            return "red"            # orange-leaning reds (field: sprocket read h~12-25)
         return "colored"
 
     def _count_blobs(self, frame, roi) -> int:
