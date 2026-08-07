@@ -69,14 +69,16 @@ class Arm:
             for name, c in self.cameras.items()
             if name in ("top", "wrist")  # only arm cameras; 'box' belongs to the classifier
         }
-        self.robot = SO101Follower(
-            SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
-        )
         # the servo bus occasionally corrupts a packet; retry instead of dying.
         # RuntimeError covers the motor-check ("Missing motor IDs") - a servo
         # recovering from overload protection can miss one scan and answer the
-        # next (field-observed on the gripper).
+        # next (field-observed on the gripper). Each retry builds a FRESH robot:
+        # a failed connect can leave cameras attached, and reusing that object
+        # dies on 'OpenCVCamera is already connected' forever (field-observed).
         for attempt in range(4):
+            self.robot = SO101Follower(
+                SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
+            )
             try:
                 self.robot.connect(calibrate=False)
                 break
@@ -85,6 +87,11 @@ class Arm:
                     raise
                 log.warning("bus glitch on connect (%s); retrying in 2s [%d/3]",
                             str(e).splitlines()[0], attempt + 1)
+                for cam in getattr(self.robot, "cameras", {}).values():
+                    try:
+                        cam.disconnect()
+                    except Exception:
+                        pass
                 try:
                     self.robot.bus.disconnect()
                 except Exception:
