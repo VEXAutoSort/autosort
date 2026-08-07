@@ -94,6 +94,9 @@ class PerceptionCfg:
     empty_frames: int
     max_piece_area: int = 10000   # px^2 - ignore blobs bigger than a piece (the drop box, a hand, shadows)
     contrast_margin: int = 45     # how much darker than the surface a pixel must be to count as piece (shadows are ~15-25)
+    contrast_margin_light: int | None = 55  # how much LIGHTER than the surface counts (white spacers/plastic
+                                            # screws); higher than the dark margin because glints skew bright.
+                                            # None disables light-piece detection entirely.
 
 
 @dataclass
@@ -118,6 +121,7 @@ class PieceProfile:
     max_area: float = 1e9
     min_aspect: float = 1.0        # minAreaRect long/short side
     max_aspect: float = 99.0
+    color: str | None = None       # require this blob color (dark/white/gray/red/colored); None = any
     grasp_z_offset_m: float = 0.0  # added to arm.grasp_z_offset_m for this piece (negative = deeper)
     open_width: float | None = None   # approach opening; None = taught gripper_open
     stall_min: float | None = None    # expected single-piece stall band; None = don't judge

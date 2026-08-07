@@ -37,7 +37,7 @@ def snap(arm: Arm, cam: str, path: Path) -> None:
     if frame is None:
         print(f"  !! no frame from '{cam}' for {path.name}")
         return
-    cv2.imwrite(str(path), frame)
+    cv2.imwrite(str(path), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))  # frames are RGB
     print(f"  saved {path.name}")
 
 

@@ -69,17 +69,23 @@ perception:
 
 # --- Piece types: classification windows + grasp profiles ----
 # A detected blob matches the FIRST profile whose area/aspect window contains
-# it (most specific first); no match = 'unknown' = today's default behavior.
+# it AND whose color matches (dark/white/gray/red/colored; omit = any).
 # AREA WINDOWS ARE PLACEHOLDERS: tune from the run log's
-#   "target: area=... aspect=... -> label" lines at the NEW camera height.
+#   "target: area=... aspect=... color=... -> label" lines at the NEW camera
+# height (put one of each piece down, run, read the numbers back to Claude).
 # Grasp fields all optional: grasp_z_offset_m (negative=deeper), open_width,
 # stall_min/stall_max (expected single-piece stall band; max+2 = "grabbed 2").
+# Deferred parts: thin axles + washers (need touch-down sensing, later).
 pieces:
-  standoff: {min_aspect: 2.0, min_area: 200}                    # long thin metal/plastic post
-  screw:    {min_aspect: 2.0, min_area: 60,  max_area: 199}     # smaller than a standoff, also elongated
-  gear:     {max_aspect: 1.35, min_area: 700}                   # big and round
-  spacer:   {max_aspect: 1.35, min_area: 200, max_area: 699}    # small and round
-  nut:      {max_aspect: 1.35, min_area: 60,  max_area: 199}    # tiny and round-ish
+  sprocket:      {max_aspect: 1.4, min_area: 700, color: red}      # gear-sized, red
+  gear:          {max_aspect: 1.4, min_area: 900, color: dark}
+  hs_axle_lock:  {max_aspect: 1.4, min_area: 450, max_area: 899, color: dark}  # black, slightly smaller than gear
+  spacer_white:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: white}
+  spacer_black:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: dark}
+  shaft_collar:  {max_aspect: 1.6, min_area: 80,  max_area: 449, color: gray}  # small gray ring
+  nylock:        {max_aspect: 1.6, min_area: 60,  max_area: 300}               # small gray/white nut (overlaps collar - tune!)
+  plastic_screw: {min_aspect: 2.0, color: white}                               # white, one length
+  screw:         {min_aspect: 2.0, min_area: 60}                               # metal, any length (area spans lengths)
 
 # --- ArUco camera-drift auto-correction ----------------------
 # 4 markers taped permanently around the pick zone (print: tools/make_markers.py,

@@ -99,10 +99,12 @@ class Pipeline:
                 label, profile = "unknown", None
                 if target_px is not None and not self.cfg.run.dry_run:
                     label = Classifier.classify_geometry(
-                        reachable[0][0], reachable[0][4], self.cfg.pieces)
+                        reachable[0][0], reachable[0][4], self.cfg.pieces,
+                        color=reachable[0][5])
                     profile = self.cfg.pieces.get(label)
-                    log.info("target: area=%d aspect=%.2f angle=%.0f -> '%s'",
-                             int(reachable[0][0]), reachable[0][4], reachable[0][3], label)
+                    log.info("target: area=%d aspect=%.2f angle=%.0f color=%s -> '%s'",
+                             int(reachable[0][0]), reachable[0][4], reachable[0][3],
+                             reachable[0][5], label)
 
                 # 2. done? nothing REACHABLE left, confirmed over several frames.
                 if remaining == 0:

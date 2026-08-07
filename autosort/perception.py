@@ -137,9 +137,9 @@ class Perception:
             cv2.rectangle(vis, (int(x0m), int(y0m)), (int(x1m), int(y1m)),
                           (160, 160, 160), 2)
         import numpy as np
-        for area, cx, cy, angle, aspect in self._pile_blobs(frame):
+        for area, cx, cy, angle, aspect, color in self._pile_blobs(frame):
             cv2.circle(vis, (int(cx), int(cy)), 10, (0, 255, 0), 2)
-            cv2.putText(vis, f"{int(area)}", (int(cx) + 12, int(cy)),
+            cv2.putText(vis, f"{int(area)} {color}", (int(cx) + 12, int(cy)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             if aspect >= 1.4:  # draw the long axis of elongated pieces
                 dx, dy = np.cos(np.radians(angle)) * 24, np.sin(np.radians(angle)) * 24
@@ -151,7 +151,9 @@ class Perception:
         out = Path("/tmp/autosort_debug")
         out.mkdir(exist_ok=True)
         path = str(out / f"{tag}_{_time.strftime('%H%M%S')}.png")
-        cv2.imwrite(path, vis)
+        # frames are RGB (lerobot default); imwrite expects BGR - convert so
+        # saved files show true colors (matters now that color is a feature)
+        cv2.imwrite(path, cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
         return path
 
     def _blobs(self, frame, roi) -> list[tuple[float, float, float, float, float]]:
@@ -176,11 +178,15 @@ class Perception:
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
         # Threshold relative to the background brightness instead of Otsu: Otsu
         # ALWAYS splits the image, so on an empty crop it promotes soft shadows
-        # into phantom pieces. Real pieces are far darker than the surface;
-        # anything within contrast_margin of the median is background/shadow.
+        # into phantom pieces. Anything within the margin of the median is
+        # background/shadow. TWO-SIDED: white pieces (white spacers, plastic
+        # screws) are LIGHTER than the surface and were invisible to the old
+        # darker-only threshold. The light margin is separate because specular
+        # glints skew bright; None disables the light side entirely.
         bg = float(np.median(gray))
-        thr = max(1.0, bg - self.cfg.contrast_margin)
-        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
+        mask = (gray < max(1.0, bg - self.cfg.contrast_margin)).astype(np.uint8) * 255
+        if self.cfg.contrast_margin_light is not None:
+            mask |= (gray > min(254.0, bg + self.cfg.contrast_margin_light)).astype(np.uint8) * 255
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         # bridge thin gaps (a fingertip or gear spoke splitting one piece in two)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
@@ -199,9 +205,34 @@ class Perception:
             else:
                 angle = (ang + 90.0) % 180.0
             aspect = (max(rw, rh) / min(rw, rh)) if min(rw, rh) > 1e-6 else 1.0
+            color = self._blob_color(crop, c) if crop.ndim == 3 else "unknown"
             out.append((area, ox + m["m10"] / m["m00"], oy + m["m01"] / m["m00"],
-                        angle, aspect))
+                        angle, aspect, color))
         return out
+
+    @staticmethod
+    def _blob_color(crop_rgb, contour) -> str:
+        """Coarse color name for a blob: dark / white / gray / red / colored.
+
+        Half the inventory separates on color, not shape: red sprocket vs
+        black gear (same size+roundness), black vs white spacers. Coarse HSV
+        buckets are robust to lighting; fine hue is not.
+        """
+        import cv2
+        import numpy as np
+
+        m = np.zeros(crop_rgb.shape[:2], np.uint8)
+        cv2.drawContours(m, [contour], -1, 255, -1)
+        mean = cv2.mean(crop_rgb, mask=m)[:3]
+        hsv = cv2.cvtColor(np.uint8([[mean]]), cv2.COLOR_RGB2HSV)[0][0]
+        h, s, v = int(hsv[0]), int(hsv[1]), int(hsv[2])
+        if s < 60:                     # achromatic
+            if v < 90:
+                return "dark"
+            return "white" if v > 180 else "gray"
+        if h < 12 or h > 168:          # OpenCV hue wraps at 180
+            return "red"
+        return "colored"
 
     def _count_blobs(self, frame, roi) -> int:
         return len(self._blobs(frame, roi))
