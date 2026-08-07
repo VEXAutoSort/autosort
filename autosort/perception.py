@@ -184,7 +184,9 @@ class Perception:
         ox, oy = int(x0 * w), int(y0 * h)
         crop = frame[oy:int(y1 * h), ox:int(x1 * w)]
         gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY) if crop.ndim == 3 else crop
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        # light blur only: a screw shank is ~2-3 px wide in the top view, and a
+        # 5x5 blur halves its contrast before thresholding even starts
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
         # Threshold relative to the background brightness instead of Otsu: Otsu
         # ALWAYS splits the image, so on an empty crop it promotes soft shadows
         # into phantom pieces. Anything within the margin of the median is
@@ -197,8 +199,11 @@ class Perception:
         if self.cfg.contrast_margin_light is not None:
             mask |= (gray > min(254.0, bg + self.cfg.contrast_margin_light)).astype(np.uint8) * 255
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        # bridge thin gaps (a fingertip or gear spoke splitting one piece in two)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+        # bridge small gaps (gear spokes splitting one piece in two). 5x5, NOT
+        # 9x9: the big kernel inflated a 2-3px-wide screw into a shapeless blob
+        # (field: aspect read 1.6-2 instead of ~8+, angle jittered +-40 deg
+        # between frames of a STATIONARY screw, classification flip-flopped)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         out = []
         for c in contours:
@@ -214,7 +219,10 @@ class Perception:
             else:
                 angle = (ang + 90.0) % 180.0
             aspect = (max(rw, rh) / min(rw, rh)) if min(rw, rh) > 1e-6 else 1.0
-            color = self._blob_color(crop, c) if crop.ndim == 3 else "unknown"
+            # tiny blobs' mean color is dominated by edge pixels and table
+            # bleed (field: a steel screw read 'red') - don't pretend to know
+            color = (self._blob_color(crop, c)
+                     if crop.ndim == 3 and area >= 150 else "unknown")
             out.append((area, ox + m["m10"] / m["m00"], oy + m["m01"] / m["m00"],
                         angle, aspect, color))
         return out

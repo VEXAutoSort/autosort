@@ -102,9 +102,9 @@ class Pipeline:
                         reachable[0][0], reachable[0][4], self.cfg.pieces,
                         color=reachable[0][5])
                     profile = self.cfg.pieces.get(label)
-                    log.info("target: area=%d aspect=%.2f angle=%.0f color=%s -> '%s'",
-                             int(reachable[0][0]), reachable[0][4], reachable[0][3],
-                             reachable[0][5], label)
+                    log.info("target: px=(%.0f,%.0f) area=%d aspect=%.2f angle=%.0f color=%s -> '%s'",
+                             target_px[0], target_px[1], int(reachable[0][0]),
+                             reachable[0][4], reachable[0][3], reachable[0][5], label)
 
                 # 2. done? nothing REACHABLE left, confirmed over several frames.
                 if remaining == 0:
