@@ -6,7 +6,7 @@
 
 # --- Run behaviour -------------------------------------------
 run:
-  mode: step                # continuous | step   (step = wait for Enter between pieces; use step for first sessions)
+  mode: continuous          # continuous | step   (step = wait for Enter between pieces)
   dry_run: false            # true = simulate everything (no arm/cameras/models needed)
   max_consecutive_fails: 8  # give up after this many failed picks in a row
 

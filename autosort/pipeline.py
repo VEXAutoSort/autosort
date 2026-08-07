@@ -140,10 +140,11 @@ class Pipeline:
                 # (motion blur, claw shadow) and vote a phantom piece in or a
                 # real one out. Transients don't survive a median.
                 counts = []
+                held_min = profile.held_min_area if profile is not None else None
                 for _ in range(3):
                     wrist_frame = self.arm.frame("wrist")
                     if wrist_frame is not None:
-                        counts.append(self.perception.pieces_in_gripper(wrist_frame))
+                        counts.append(self.perception.pieces_in_gripper(wrist_frame, held_min))
                     time.sleep(0.15)
                 if not counts:
                     # camera dropped out: trust the gripper position alone rather

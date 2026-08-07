@@ -45,7 +45,7 @@ class Perception:
             return self._sim_remaining
         return len(self._pile_blobs(top_frame))
 
-    def pieces_in_gripper(self, wrist_frame) -> int:
+    def pieces_in_gripper(self, wrist_frame, held_min: int | None = None) -> int:
         """0 or 1: is anything held? Judged by TOTAL dark area in the ROI.
 
         This deliberately does NOT try to count 2+: one gear already covers
@@ -71,7 +71,16 @@ class Perception:
         bg = float(np.percentile(crop, 90))
         mask = (crop < bg - self.cfg.contrast_margin).astype(np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        return 1 if int(mask.sum()) >= self.cfg.min_piece_area else 0
+        total = int(mask.sum())
+        # held threshold, NOT min_piece_area: the ROI's background is the TABLE,
+        # and a missed piece lying there shows up small but real. Distance is
+        # the tell - held pieces are huge (cm from the lens), floor pieces are
+        # not. Below the held threshold = not in the gripper. Small piece types
+        # override via their profile's held_min_area.
+        lim = held_min if held_min is not None else self.cfg.held_min_area
+        if 0 < total < lim:
+            log.info("wrist sees %d dark px - too small to be held (floor piece in view?)", total)
+        return 1 if total >= lim else 0
 
     def pile_blobs_sorted(self, top_frame) -> list[tuple[float, float, float]]:
         """All pile blobs, biggest first — lets the caller apply its own filters

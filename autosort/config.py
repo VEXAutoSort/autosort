@@ -97,6 +97,10 @@ class PerceptionCfg:
     contrast_margin_light: int | None = 55  # how much LIGHTER than the surface counts (white spacers/plastic
                                             # screws); higher than the dark margin because glints skew bright.
                                             # None disables light-piece detection entirely.
+    held_min_area: int = 5000     # px in the WRIST ROI that counts as a HELD piece. A held piece is cm from
+                                  # the lens (~13350 px measured); a piece lying on the TABLE in the camera's
+                                  # line of sight is several times farther and reads several times smaller -
+                                  # field bug: a missed gear on the ground voted as 'held'.
 
 
 @dataclass
@@ -126,6 +130,8 @@ class PieceProfile:
     open_width: float | None = None   # approach opening; None = taught gripper_open
     stall_min: float | None = None    # expected single-piece stall band; None = don't judge
     stall_max: float | None = None    # stall above max+2 = 2+ pieces (overrides two_piece_stall)
+    held_min_area: int | None = None  # wrist-ROI px meaning THIS piece is held (small pieces read far
+                                      # smaller than a gear's ~13350); None = global perception value
 
 
 @dataclass
