@@ -58,6 +58,10 @@ def main() -> None:
             if attempt == 3:
                 raise
             time.sleep(2)
+    # measure at the REAL inspect pose - the hold check runs there, and what
+    # the ROI sees (fingers, background) depends on the arm's posture
+    inspect = dict(taught["poses"]["inspect"])
+    move_smooth(robot, inspect, duration_s=1.5)
     move_smooth(robot, {"gripper": taught["gripper_closed"]}, duration_s=0.6)
 
     wrist = cfg.cameras["wrist"]
@@ -79,7 +83,7 @@ def main() -> None:
         x0, y0, x1, y1 = roi
         vis = frame.copy()
         cv2.rectangle(vis, (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h)), (255, 150, 0), 2)
-        for area, cx, cy in blobs:
+        for area, cx, cy, *_ in blobs:
             cv2.circle(vis, (int(cx), int(cy)), 12, (0, 255, 0), 3)
             cv2.putText(vis, str(int(area)), (int(cx) + 14, int(cy)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
