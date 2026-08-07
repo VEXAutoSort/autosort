@@ -158,6 +158,15 @@ class Pipeline:
                 # ~67% of the tight wrist ROI, so area saturates and can't count.
                 # Two side-by-side pieces stall the fingers measurably wider.
                 stall = self.arm.gripper_pos()
+                # Since the gripper recalibration, empty fingers close to full
+                # TOUCH (~0.6) - nothing can be between them. That makes the
+                # position check authoritative for EMPTY: the wrist camera can
+                # be fooled (closed jaws sweep into its ROI and read as a dark
+                # mass - observed), but touching fingertips cannot be holding
+                # anything. (Sub-mm-thin pieces like washers would defeat this;
+                # they're deferred to touch-down sensing anyway.)
+                if not pos_holding and not self.cfg.run.dry_run:
+                    n = 0
                 two_thresh = self.cfg.arm.two_piece_stall
                 if profile is not None and profile.stall_max is not None:
                     two_thresh = profile.stall_max + 2.0   # piece-specific band beats the global gear value
