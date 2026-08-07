@@ -72,20 +72,34 @@ class Arm:
         self.robot = SO101Follower(
             SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
         )
-        # the servo bus occasionally corrupts a packet; retry instead of dying
+        # the servo bus occasionally corrupts a packet; retry instead of dying.
+        # RuntimeError covers the motor-check ("Missing motor IDs") - a servo
+        # recovering from overload protection can miss one scan and answer the
+        # next (field-observed on the gripper).
         for attempt in range(4):
             try:
                 self.robot.connect(calibrate=False)
                 break
-            except ConnectionError as e:
+            except (ConnectionError, RuntimeError) as e:
                 if attempt == 3:
                     raise
-                log.warning("bus glitch on connect (%s); retrying in 2s [%d/3]", e, attempt + 1)
+                log.warning("bus glitch on connect (%s); retrying in 2s [%d/3]",
+                            str(e).splitlines()[0], attempt + 1)
                 try:
                     self.robot.bus.disconnect()
                 except Exception:
                     pass
                 time.sleep(2)
+        # a gripper running hot is the early warning for overload shutdown
+        try:
+            temps = self.robot.bus.sync_read("Present_Temperature", normalize=False, num_retry=2)
+            g = temps.get("gripper")
+            log.info("servo temps: %s", dict(temps))
+            if g is not None and g >= 55:
+                log.warning("gripper servo at %dC - approaching overload territory; "
+                            "let it cool before long runs", g)
+        except Exception:
+            pass
         self._install_reconnect_hook(SO101Follower, SO101FollowerConfig, cams)
         if self.cfg.pick_mode == "act":
             self._load_policy()
