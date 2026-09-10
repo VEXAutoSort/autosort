@@ -60,6 +60,25 @@ python run.py                            # real run (dry_run false in config.yam
   wall), so Claude can drive the whole re-commissioning; a user only has to move the arm
   and turn the lens.
 
+## Elevated vibration tray (planned setup)
+
+Pieces sit on a tray ~150 mm above the table; a ramp on the camera-left side takes
+the drops. Nothing in the solver changes - the taught grid captures the tray's
+height and tilt exactly as it did the table's. What is different:
+
+* **`clear` pose (teach key A):** straight up from home, above the tray rim. The arm
+  passes through it on every move between the home/drop side and the pick area,
+  so it never sweeps through the tray wall. Teach it, then M/B as usual (B is now
+  over the ramp). D removes it again for a flat table.
+* **Gentle descent:** `arm.descend_steps` / `contact_stop_deg` in config.yaml step the
+  hover->grasp move and stop early when the servos report contact (tracking error),
+  so the fingertips never press the tray. Set `contact_stop_deg: null` to disable.
+* **Drop-back** (two pieces grabbed) releases at the last hover, over the tray, not at home.
+* Re-teach the grid ON the tray (it is a new plane), re-tune `pile_roi`, `exclude_zones`
+  (the ramp side), and the `pieces:` area windows (the tray is closer to the camera).
+* Still to build: tray vibration control (a settle pause before detection); the pipeline
+  detects from a single frame at home, so vibrate -> stop -> detect.
+
 ## Running on the lab Mac (previous host — kept for reference)
 
 No install needed; the LeRobot environment is already on this machine. Every

@@ -31,6 +31,7 @@ log = logging.getLogger("autosort.arm")
 
 class Arm:
     def __init__(self, cfg: ArmCfg, cameras: dict[str, CameraCfg], dry_run: bool = False):
+        self._last_hover: dict[str, float] | None = None   # where the last pick hovered (drop_back releases there)
         self.cfg = cfg
         self.cameras = cameras
         self.dry_run = dry_run
@@ -297,12 +298,64 @@ class Arm:
         # set the gripper width FIRST, in place, so it stays constant through
         # the whole approach instead of interpolating from wherever it was
         move_smooth(self.robot, {"gripper": open_g}, duration_s=0.4)
+        self._via_clear()   # elevated tray: rise straight up before swinging over it
         move_smooth(self.robot, {**hover, "gripper": open_g}, duration_s=1.3)
-        move_smooth(self.robot, {**grasp, "gripper": open_g}, duration_s=0.9)
-        move_smooth(self.robot, {**grasp, "gripper": closed_g}, duration_s=0.5)
+        self._last_hover = dict(hover)
+        reached = self._descend(hover, grasp, open_g)
+        move_smooth(self.robot, {**reached, "gripper": closed_g}, duration_s=0.5)
         time.sleep(0.3)
         move_smooth(self.robot, {**hover, "gripper": closed_g}, duration_s=0.9)
         return True
+
+    def _descend(self, hover: dict[str, float], grasp: dict[str, float],
+                 gripper: float) -> dict[str, float]:
+        """hover -> grasp, optionally in steps that stop when the fingertips
+        meet something (a vibration tray must not be pressed on).
+
+        Contact signal = joint tracking error: the servos hold ~1 deg of lag in
+        free motion and 5+ deg when the tips are pushed against a surface
+        (measured with tools/touchdown_probe.py). Stopping one step early
+        leaves the fingers a few mm above the planned grasp height, which
+        gears and spacers tolerate. Returns the pose actually reached.
+        """
+        steps = max(1, int(self.cfg.descend_steps))
+        thresh = self.cfg.contact_stop_deg
+        if steps == 1 and thresh is None:
+            move_smooth(self.robot, {**grasp, "gripper": gripper}, duration_s=self.cfg.descend_time_s)
+            return grasp
+        cur = dict(hover)
+        # quadratic spacing: coarse at the top, fine at the bottom (6 steps over
+        # an 80 mm lift end in ~2 mm increments), so a contact stop on the last
+        # step leaves the tips millimetres - not centimetres - above the plan
+        fracs = [1.0 - ((steps - k) / steps) ** 2 for k in range(1, steps + 1)]
+        prev = 0.0
+        for n, a in enumerate(fracs, 1):
+            tgt = {j: hover[j] + a * (grasp[j] - hover[j]) for j in JOINTS if j != "gripper"}
+            move_smooth(self.robot, {**tgt, "gripper": gripper},
+                        duration_s=max(0.15, self.cfg.descend_time_s * (a - prev)))
+            prev = a
+            if thresh is not None:
+                time.sleep(0.15)
+                now = read_joints(self.robot)
+                lag = {j: abs(now[j] - tgt[j]) for j in ("shoulder_lift", "elbow_flex", "wrist_flex")}
+                worst = max(lag, key=lag.get)
+                if lag[worst] > thresh:
+                    log.warning("contact at descent step %d/%d (%s lags %.1f deg) - grasping here",
+                                n, steps, worst, lag[worst])
+                    return {**cur, **{j: now[j] for j in lag}}   # what the arm actually reached
+            cur = tgt
+        return grasp
+
+    def _via_clear(self) -> None:
+        """Pass through the taught 'clear' pose if one exists.
+
+        For an elevated tray: 'clear' is taught straight up from home, above
+        the tray's rim, so every move between the home/drop side and the pick
+        area goes up, over, and down instead of through the tray wall. Without
+        a taught 'clear' pose this is a no-op (flat-table behaviour).
+        """
+        if self.taught and "clear" in self.taught.poses:
+            self.move_to("clear")
 
     def _pick_act(self) -> None:
         import torch
@@ -345,6 +398,7 @@ class Arm:
             return
         closed = self.taught.gripper_closed
         pose = self.taught.poses["box_drop"]
+        self._via_clear()   # leave the tray area upward before swinging to the drop side
         move_smooth(self.robot, {**pose, "gripper": closed}, duration_s=1.5)
         move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_open}, duration_s=0.4)
         time.sleep(0.4)
@@ -355,10 +409,15 @@ class Arm:
         if self.dry_run:
             log.info("[dry-run] drop_back()")
             return
-        pose = self.taught.poses["home"]
+        # release over the pile: at the last hover (already above the pieces)
+        # when we have one, else at home as before. Never from 'home' when an
+        # elevated tray is in use - home is below the rim, the pieces would fall off.
+        pose = self._last_hover or self.taught.poses["home"]
         move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_closed}, duration_s=1.2)
         move_smooth(self.robot, {**pose, "gripper": self.taught.gripper_open}, duration_s=0.4)
         time.sleep(0.3)
+        self._via_clear()
+        self.move_to("home")
         self._park_fingers()
 
     def _park_fingers(self) -> None:

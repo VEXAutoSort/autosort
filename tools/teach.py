@@ -76,10 +76,10 @@ def main() -> None:
                 pass
             _t.sleep(2)
     robot.bus.disable_torque()
-    say("TORQUE RELEASED — move the arm by hand. Keys: G H M I B O C S Q  (U = undo last grid point)")
+    say("TORQUE RELEASED — move the arm by hand. Keys: G H M I B A O C S Q  (U = undo last grid point, D = drop the clear pose)")
 
     cap = cfg.cameras["top"].verify_open("top")   # honours by-id paths + fourcc
-    ui = make_display("teach (G H M I B O C S Q)")
+    ui = make_display("teach (G H M I B A O C S Q)")
 
     def safe_joints():
         """read_joints, but a bus glitch returns None instead of crashing the session."""
@@ -157,7 +157,7 @@ def main() -> None:
         cv2.putText(vis, f"last key seen: {last_key}", (10, 62),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         ui.status(f"{status}\nlast key: {last_key}   |   G lock/record  X cancel  U undo  H hover  "
-                  f"M home  I inspect  B box  O open  C closed  S SAVE (every 4-5 points!)  Q quit")
+                  f"M home  I inspect  B box  A clear(above tray)  O open  C closed  S SAVE (every 4-5 points!)  Q quit")
         ui.show(vis)
         raw = ui.waitkey(30)
         key = raw & 0xFF
@@ -229,6 +229,18 @@ def main() -> None:
                 continue
             data["poses"]["box_drop"] = _j
             say("box_drop recorded")
+        elif key == ord("a"):
+            _j = safe_joints()
+            if _j is None:
+                continue
+            data["poses"]["clear"] = _j
+            say("clear recorded (straight up from home, above the tray rim - every move between "
+                "home/drop and the pick area passes through it)")
+        elif key == ord("d"):
+            if data["poses"].pop("clear", None) is not None:
+                say("clear pose removed (flat-table behaviour: no waypoint)")
+            else:
+                say("no clear pose to remove")
         elif key == ord("o"):
             _j = safe_joints()
             if _j is None:

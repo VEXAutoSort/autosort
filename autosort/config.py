@@ -95,6 +95,11 @@ class ArmCfg:
     solver: str = "analytic"                  # analytic (homography+IK) | interpolate (taught-pose blending)
     urdf_path: str | None = None              # SO-101 URDF for the analytic solver
     hover_lift_m: float = 0.08                # how far straight up the hover pose sits (analytic only)
+    descend_steps: int = 1                    # hover->grasp in this many sub-moves (1 = one smooth move)
+    contact_stop_deg: float | None = None     # stop the descent early when lift/elbow/wrist lag the command
+                                              # by more than this (fingertips met the tray). None = off.
+                                              # Free motion tracks to ~1 deg; contact reads 5+ (measured).
+    descend_time_s: float = 0.9               # total hover->grasp time; slower = gentler on a tray
     grasp_z_offset_m: float = 0.0             # added to every grasp height; NEGATIVE = deeper (flat pieces
                                               # like spacers need the fingertips lower than the gear-taught z)
     act_fps: float = 30.0                     # control rate for the ACT pick loop
