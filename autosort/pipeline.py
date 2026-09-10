@@ -110,6 +110,13 @@ class Pipeline:
                 if remaining == 0:
                     empty_reads += 1
                     if empty_reads >= self.cfg.perception.empty_frames:
+                        if self.cfg.run.mode == "step":
+                            # demo/step mode: the operator places pieces by hand between
+                            # cycles, so an empty zone is a pause, not the end
+                            log.info("no reachable piece in the zone (%d sorted so far)", sorted_count)
+                            input("  place a piece and press Enter (Ctrl-C to quit)... ")
+                            empty_reads = 0
+                            continue
                         log.info("no reachable pieces left — %d sorted. done.", sorted_count)
                         break
                     time.sleep(0.3)
@@ -228,6 +235,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="AutoSort — autonomous VEX hardware sorter")
     ap.add_argument("-c", "--config", default=None, help="path to config.yaml")
     ap.add_argument("--dry-run", action="store_true", help="simulate everything (no hardware/models)")
+    ap.add_argument("--step", action="store_true", help="one pick per Enter (overrides run.mode)")
+    ap.add_argument("--continuous", action="store_true", help="run until the zone is empty (overrides run.mode)")
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -238,6 +247,10 @@ def main() -> None:
     cfg = Config.load(args.config)
     if args.dry_run:
         cfg.run.dry_run = True
+    if args.step:
+        cfg.run.mode = "step"
+    if args.continuous:
+        cfg.run.mode = "continuous"
     if not cfg.run.dry_run:
         from pathlib import Path as _P
         override = _P(args.config).parent if args.config else _P(__file__).resolve().parent.parent
