@@ -84,8 +84,8 @@ pieces:
   # gear ~1300 stall 12.4-12.7 (earlier runs). Small pieces still placeholder.
   sprocket:      {max_aspect: 1.4, min_area: 900, color: red,
                   stall_min: 9.0, stall_max: 11.5}
-  gear:          {max_aspect: 1.4, min_area: 900, color: dark,
-                  stall_min: 11.5, stall_max: 13.5}
+  gear:          {max_aspect: 1.4, min_area: 850, color: dark,   # 2026-09-09 GPU box: area 993-1145, stall 13.9-14.4 (7 picks)
+                  stall_min: 13.0, stall_max: 15.5}
   hs_axle_lock:  {max_aspect: 1.4, min_area: 450, max_area: 899, color: dark,
                   stall_min: 6.0, stall_max: 8.5}
   spacer_white:  {max_aspect: 1.6, min_area: 150, max_area: 449, color: white,
