@@ -137,7 +137,9 @@ def main() -> None:
                 gy = ry0 * fh + cell_h * (cy_i + 0.5)
                 near = any((gx - tx) ** 2 + (gy - ty) ** 2 < (min(cell_w, cell_h) * 0.75) ** 2
                            for tx, ty in taught_px)
-                if not near:
+                excluded = any(ex0 <= gx <= ex1 and ey0 <= gy <= ey1
+                               for ex0, ey0, ex1, ey1 in perception.exclude_zones_px(rgb))
+                if not near and not excluded:
                     need += 1
                     cv2.drawMarker(vis, (int(gx), int(gy)), (255, 255, 0), cv2.MARKER_CROSS, 26, 2)
         cv2.putText(vis, f"cyan crosses = teach here next ({need} cells uncovered)",
