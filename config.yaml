@@ -13,7 +13,7 @@ run:
 # --- SO-ARM101 follower --------------------------------------
 arm:
   port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A058741-if00   # Linux by-id (stable across reboots; /dev/ttyACM* is not)
-  id: follower_arm                          # names the lerobot calibration file (~/.cache/huggingface/lerobot/calibration/robots/so_follower/<id>.json) - same arm as the glass-tube work
+  id: follower_arm                          # this box's calibration (same arm as the glass-tube work). Taught joints are only valid under the calibration they were recorded with - do not swap files
   device: cuda                              # mps (Apple Silicon) | cuda | cpu
   pick_mode: classical                      # classical (taught poses, no model) | act (experimental)
   solver: analytic                          # analytic = homography + inverse kinematics (6x more accurate);

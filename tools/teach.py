@@ -183,6 +183,10 @@ def main() -> None:
                 joints = safe_joints()
                 if joints is None:
                     continue
+                if joints["wrist_flex"] > 99.0:
+                    say(f"WARNING: wrist_flex recorded at {joints['wrist_flex']:.1f} - the wrist stalls at ~101 "
+                        "under power (stop at raw 2672); poses past that cannot be replayed. Ease the wrist back "
+                        "a little and re-record (U undoes this point).")
                 data["grid"].append({"pixel": list(pending_pixel), "joints": joints})
                 hover_ref = joints
                 say(f"grid point recorded ({len(data['grid'])} total)")

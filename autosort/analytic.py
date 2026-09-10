@@ -363,22 +363,36 @@ class AnalyticSolver:
         """
         q = np.array([grasp[j] for j in JOINTS], dtype=float)
         T_g = self.kin.forward_kinematics(q)
-        target = T_g[:3, 3].copy()
-        target[2] += lift_m
-        qh = self._solve_dls(target, q)
-        qh[JOINTS.index("wrist_roll")] = q[JOINTS.index("wrist_roll")]  # same pin as the grasp
-        p_h, p_g = self.kin.forward_kinematics(qh)[:3, 3], T_g[:3, 3]
-        dz_mm = float((p_h[2] - p_g[2]) * 1000)
-        lat_mm = float(np.linalg.norm(p_h[:2] - p_g[:2]) * 1000)
-        if dz_mm < 0.5 * lift_m * 1000:
-            raise UnsafePoseError(
-                f"hover only gained {dz_mm:.0f} mm of the requested {lift_m*1000:.0f} mm lift")
-        if lat_mm > 25.0:
-            raise UnsafePoseError(f"hover drifted {lat_mm:.0f} mm sideways from the grasp point")
-        qh = self._sanity_check(qh, "hover pose")
-        out = {j: float(qh[i]) for i, j in enumerate(JOINTS)}
-        out["gripper"] = grasp["gripper"]
-        return out
+        # Close to the shoulder, a full lift needs shoulder_lift further back
+        # than any taught grasp and the envelope guard (rightly) refuses it.
+        # Fall back to shorter lifts before giving up: each candidate must
+        # pass every guard on its own terms, and 5 cm still clears a pile.
+        last_err = None
+        for lift in (lift_m, 0.75 * lift_m, min(0.05, lift_m)):
+            target = T_g[:3, 3].copy()
+            target[2] += lift
+            qh = self._solve_dls(target, q)
+            qh[JOINTS.index("wrist_roll")] = q[JOINTS.index("wrist_roll")]  # same pin as the grasp
+            p_h, p_g = self.kin.forward_kinematics(qh)[:3, 3], T_g[:3, 3]
+            dz_mm = float((p_h[2] - p_g[2]) * 1000)
+            lat_mm = float(np.linalg.norm(p_h[:2] - p_g[:2]) * 1000)
+            try:
+                if dz_mm < 0.5 * lift * 1000:
+                    raise UnsafePoseError(
+                        f"hover only gained {dz_mm:.0f} mm of the requested {lift*1000:.0f} mm lift")
+                if lat_mm > 25.0:
+                    raise UnsafePoseError(f"hover drifted {lat_mm:.0f} mm sideways from the grasp point")
+                qh = self._sanity_check(qh, "hover pose")
+            except UnsafePoseError as e:
+                last_err = e
+                continue
+            if lift != lift_m:
+                log.info("hover: full %.0f mm lift left the taught envelope, using %.0f mm",
+                         lift_m * 1000, lift * 1000)
+            out = {j: float(qh[i]) for i, j in enumerate(JOINTS)}
+            out["gripper"] = grasp["gripper"]
+            return out
+        raise last_err
 
 
 def _fit_homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:

@@ -47,10 +47,13 @@ def make_solver(data: dict, cfg) -> AnalyticSolver:
 
 
 def main() -> None:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     drop: set[int] = set()
-    if "--drop" in sys.argv:
-        drop = {int(x) for x in sys.argv[sys.argv.index("--drop") + 1].split(",")}
+    argv = list(sys.argv[1:])
+    if "--drop" in argv:
+        k = argv.index("--drop")
+        drop = {int(x) for x in argv[k + 1].split(",")}
+        del argv[k:k + 2]
+    args = [a for a in argv if not a.startswith("--")]
     path = Path(args[0]) if args else ROOT / "taught.json"
     cfg = Config.load()
     data = json.loads(path.read_text())
