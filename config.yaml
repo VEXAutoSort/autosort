@@ -21,8 +21,8 @@ arm:
   urdf_path: urdf/so101_nomesh.urdf         # SO-101 geometry (meshes stripped), relative to the repo root - lives in git, survives reboots
   hover_lift_m: 0.08                        # straight-up clearance above the grasp, metres
   # --- gentle descent (for the vibration tray) ---
-  descend_steps: 6                          # hover->grasp in sub-moves, quadratically spaced (last ~2 mm); 1 = one smooth move
-  contact_stop_deg: 3.0                     # stop descending when lift/elbow/wrist lag the command by more
+  descend_steps: 1                          # hover->grasp in sub-moves, quadratically spaced (last ~2 mm); 1 = one smooth move
+  contact_stop_deg: null                    # stop descending when lift/elbow/wrist lag the command by more
                                             # than this = fingertips met the tray. Free motion lags ~1 deg,
                                             # contact 5+ (touchdown_probe 2026-09-09). null = never stop early.
   descend_time_s: 1.2                       # total hover->grasp time; slower is gentler on the tray
