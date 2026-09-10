@@ -66,7 +66,7 @@ class Arm:
 
         cams = {
             name: OpenCVCameraConfig(index_or_path=c.index_or_path, width=c.width, height=c.height,
-                                     fps=c.fps, fourcc=c.fourcc)
+                                     fps=c.fps, fourcc=c.fourcc, warmup_s=c.warmup_s)
             for name, c in self.cameras.items()
             if name in ("top", "wrist")  # only arm cameras; 'box' belongs to the classifier
         }
@@ -83,8 +83,8 @@ class Arm:
             try:
                 self.robot.connect(calibrate=False)
                 break
-            except (ConnectionError, RuntimeError) as e:
-                if attempt == 3:
+            except (ConnectionError, RuntimeError, TimeoutError) as e:   # TimeoutError = a camera's
+                if attempt == 3:                                         # first frame came late
                     raise
                 log.warning("bus glitch on connect (%s); retrying in 2s [%d/3]",
                             str(e).splitlines()[0], attempt + 1)

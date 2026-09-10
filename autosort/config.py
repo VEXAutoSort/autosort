@@ -18,6 +18,8 @@ class CameraCfg:
     width: int = 640
     height: int = 480
     fps: int = 30
+    warmup_s: int = 3           # seconds lerobot waits for the first frame at connect. The Innomaker wrist
+                                # camera needs ~1 s on a cold start; lerobot's default 1 s timed out (field, 2026-09-09).
     fourcc: str | None = None   # pixel format to request (e.g. YUYV). The wrist Innomaker emits corrupt MJPEG
                                 # on some USB hubs; YUYV is clean at 640x480@30. None = driver default.
 

@@ -6,7 +6,7 @@
 
 # --- Run behaviour -------------------------------------------
 run:
-  mode: continuous          # continuous | step   (step = wait for Enter between pieces)
+  mode: step                # continuous | step   (step = wait for Enter between pieces)
   dry_run: false            # true = simulate everything (no arm/cameras/models needed)
   max_consecutive_fails: 8  # give up after this many failed picks in a row
 
@@ -61,9 +61,9 @@ cameras:
 # --- Perception (classical CV — no training needed) ----------
 # Assumes LIGHT surface with DARKER pieces (team decision 2026-07).
 perception:
-  pile_roi: [0.12, 0.10, 0.88, 0.53] # [left, top, right, bottom] fractions of the TOP frame (PROVISIONAL 2026-09-09 after the move - tune in teach.py nudge rounds; coarse gate only - reach is an annular sector)
+  pile_roi: [0.12, 0.06, 0.88, 0.48] # [left, top, right, bottom] fractions of the TOP frame (PROVISIONAL 2026-09-09 after the move - tune in teach.py nudge rounds; coarse gate only - reach is an annular sector)
   gripper_roi: [0.71, 0.38, 0.96, 0.64] # region of the WRIST frame where a held piece shows up (tuned live 2026-08-05, new camera)
-  exclude_zones: [[0.44, 0.31, 0.58, 0.53]] # detection OFF here: the gray tape = drop spot (2026-09-09 demo setup, no bin yet)
+  exclude_zones: [[0.44, 0.31, 0.58, 0.48]] # detection OFF here: the gray tape = drop spot (2026-09-09 demo setup, no bin yet)
   min_piece_area: 60                 # px^2 — speck floor. 300 silently deleted nylocks+screws (~90-200 px at this camera height; gear ~1200)
   max_piece_area: 10000              # px^2 — ignore anything bigger than a piece (the box, hands)
   contrast_margin: 45                # min darkness below the surface to count as a piece; raise if shadows count, lower if pieces vanish
