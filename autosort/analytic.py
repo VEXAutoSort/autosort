@@ -31,7 +31,7 @@ log = logging.getLogger("autosort.analytic")
 class UnsafePoseError(RuntimeError):
     """Raised when a computed pose is rejected before it can be sent to the arm."""
 
-DEFAULT_URDF = Path("/tmp/so101_urdf/so101_nomesh.urdf")
+DEFAULT_URDF = Path(__file__).resolve().parent.parent / "urdf" / "so101_nomesh.urdf"   # in-repo: /tmp dies on reboot
 
 
 class AnalyticSolver:
@@ -43,6 +43,8 @@ class AnalyticSolver:
         from lerobot.model.kinematics import RobotKinematics
 
         self.urdf_path = Path(urdf_path or DEFAULT_URDF)
+        if not self.urdf_path.is_absolute():   # config paths are relative to the repo root
+            self.urdf_path = Path(__file__).resolve().parent.parent / self.urdf_path
         if not self.urdf_path.exists():
             raise FileNotFoundError(
                 f"URDF not found at {self.urdf_path}. Fetch the SO-101 URDF and strip its mesh "

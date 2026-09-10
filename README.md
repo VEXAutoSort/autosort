@@ -52,10 +52,10 @@ python run.py                            # real run (dry_run false in config.yam
   (same physical arm as the glass-tube datasets). Probed 2026-09-09: fingers touch at raw 1531,
   calibrated closed = 1518, i.e. "closed" is 13 ticks past touch — the recalibrated behaviour
   the hold logic assumes. Redo the probe (script in git history) after any jaw swap.
-* Both cameras run YUYV (the Innomaker's MJPEG is corrupt on USB hubs). The URDF at
-  `/tmp/so101_urdf/so101_nomesh.urdf` vanishes on reboot: re-download `so101_new_calib.urdf`
-  from TheRobotStudio/SO-ARM100 (`Simulation/SO101/`) and regex the 34 `<mesh .../>` refs
-  into `<box size="0.01 0.01 0.01"/>`.
+* Both cameras run YUYV (the Innomaker's MJPEG is corrupt on USB hubs). The solver's URDF is
+  `urdf/so101_nomesh.urdf` in the repo (TheRobotStudio `so101_new_calib.urdf` with its 34
+  `<mesh>` refs replaced by tiny boxes; kinematics only needs joints). It used to live in `/tmp`
+  and vanished on every reboot.
 * Serial + cameras are both openable from a plain shell here (no macOS camera-permission
   wall), so Claude can drive the whole re-commissioning; a user only has to move the arm
   and turn the lens.
