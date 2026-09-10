@@ -77,6 +77,15 @@ class Arm:
         # a failed connect can leave cameras attached, and reusing that object
         # dies on 'OpenCVCamera is already connected' forever (field-observed).
         for attempt in range(4):
+            if attempt == 2 and "wrist" in cams:
+                # the Innomaker wrist camera occasionally fails every read right
+                # after open (field, 2026-09-09: 'read failed (status=False)' x11
+                # at connect, fine in isolation). Two failed connects are enough:
+                # run without it. The fingers own the empty verdict; the wrist
+                # camera is a confirmation, and observe() tolerates its absence.
+                log.warning("wrist camera failed twice at connect - continuing WITHOUT it "
+                            "(hold checks fall back to the fingers)")
+                cams = {k: v for k, v in cams.items() if k != "wrist"}
             self.robot = SO101Follower(
                 SO101FollowerConfig(port=self.cfg.port, id=self.cfg.id, cameras=cams)
             )
