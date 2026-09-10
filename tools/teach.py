@@ -114,6 +114,10 @@ def main() -> None:
         cv2.putText(vis, "detection zone - claw must stay OUTSIDE this box at home",
                     (int(rx0 * fw) + 5, int(ry0 * fh) + 22),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 150, 0), 2)
+        for ex0, ey0, ex1, ey1 in perception.exclude_zones_px(rgb):
+            cv2.rectangle(vis, (int(ex0), int(ey0)), (int(ex1), int(ey1)), (0, 0, 255), 2)
+            cv2.putText(vis, "no-detect (drop spot)", (int(ex0) + 3, int(ey0) - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         if target and pending_pixel is None:
             cv2.circle(vis, (int(target[0]), int(target[1])), 12, (0, 255, 0), 3)
         if pending_pixel:

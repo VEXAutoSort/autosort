@@ -111,10 +111,18 @@ class Perception:
         (the arm then tries to pick up a fiducial). Detection is per-frame, so
         exclusion keeps working even as the camera drifts.
         """
-        zones = self._marker_zones(top_frame) + self._static_marker_zones
+        zones = self._marker_zones(top_frame) + self._static_marker_zones + self.exclude_zones_px(top_frame)
         return [b for b in self._blobs(top_frame, self.cfg.pile_roi)
                 if not any(x0 <= b[1] <= x1 and y0 <= b[2] <= y1
                            for x0, y0, x1, y1 in zones)]
+
+    def exclude_zones_px(self, frame) -> list[tuple[float, float, float, float]]:
+        """Config exclude_zones (frame fractions) as pixel boxes. The drop spot lives
+        here: a piece released onto it must never become the next target."""
+        if not self.cfg.exclude_zones or frame is None:
+            return []
+        h, w = frame.shape[:2]
+        return [(x0 * w, y0 * h, x1 * w, y1 * h) for x0, y0, x1, y1 in self.cfg.exclude_zones]
 
     def _marker_zones(self, frame) -> list[tuple[float, float, float, float]]:
         """Padded pixel bounding boxes of every ArUco marker seen in `frame`."""
@@ -145,6 +153,10 @@ class Perception:
         for x0m, y0m, x1m, y1m in self._marker_zones(frame):
             cv2.rectangle(vis, (int(x0m), int(y0m)), (int(x1m), int(y1m)),
                           (160, 160, 160), 2)
+        for x0e, y0e, x1e, y1e in self.exclude_zones_px(frame):
+            cv2.rectangle(vis, (int(x0e), int(y0e)), (int(x1e), int(y1e)), (0, 0, 255), 2)
+            cv2.putText(vis, "no-detect", (int(x0e) + 3, int(y0e) - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         import numpy as np
         for area, cx, cy, angle, aspect, color in self._pile_blobs(frame):
             cv2.circle(vis, (int(cx), int(cy)), 10, (0, 255, 0), 2)
@@ -243,7 +255,13 @@ class Perception:
         mean = cv2.mean(crop_rgb, mask=m)[:3]
         hsv = cv2.cvtColor(np.uint8([[mean]]), cv2.COLOR_RGB2HSV)[0][0]
         h, s, v = int(hsv[0]), int(hsv[1]), int(hsv[2])
-        if s < 60:                     # achromatic
+        # Achromatic test on ABSOLUTE chroma (max-min of RGB), not HSV
+        # saturation: S is chroma/V, so a nearly-black gear with a faint warm
+        # cast from the camera's white balance (RGB 34,27,15 -> chroma 19,
+        # S=143) read "red" and became a sprocket. Real red plastic under the
+        # same light has chroma ~100+. Measured 2026-09-09 on the GPU-box rig.
+        chroma = max(mean) - min(mean)
+        if chroma < 40 or s < 60:      # achromatic
             if v < 90:
                 return "dark"
             return "white" if v > 180 else "gray"

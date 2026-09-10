@@ -110,6 +110,9 @@ class PerceptionCfg:
     contrast_margin_light: int | None = 55  # how much LIGHTER than the surface counts (white spacers/plastic
                                             # screws); higher than the dark margin because glints skew bright.
                                             # None disables light-piece detection entirely.
+    exclude_zones: list[list[float]] | None = None  # [[left, top, right, bottom], ...] fractions of the TOP
+                                  # frame where detection is OFF - e.g. the drop spot, so pieces already
+                                  # sorted are never re-picked. Centroid inside any zone = ignored.
     held_min_area: int = 5000     # px in the WRIST ROI that counts as a HELD piece. A held piece is cm from
                                   # the lens (~13350 px measured); a piece lying on the TABLE in the camera's
                                   # line of sight is several times farther and reads several times smaller -
