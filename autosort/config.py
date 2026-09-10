@@ -14,10 +14,17 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
 @dataclass
 class CameraCfg:
-    index: int
+    index: int | str            # int index (macOS) or a /dev/v4l/by-id/... path (Linux - stable across reboots)
     width: int = 640
     height: int = 480
     fps: int = 30
+    fourcc: str | None = None   # pixel format to request (e.g. YUYV). The wrist Innomaker emits corrupt MJPEG
+                                # on some USB hubs; YUYV is clean at 640x480@30. None = driver default.
+
+    @property
+    def index_or_path(self):
+        """What OpenCV / lerobot should open: int index or Path to the device node."""
+        return Path(self.index) if isinstance(self.index, str) else self.index
 
     def verify_open(self, role: str):
         """Open the camera and assert it looks like the RIGHT one.
@@ -29,13 +36,19 @@ class CameraCfg:
         """
         import cv2
 
-        cap = cv2.VideoCapture(self.index)
+        cap = cv2.VideoCapture(str(self.index) if isinstance(self.index, str) else self.index)
+        if self.fourcc:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*self.fourcc))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         if not cap.isOpened():
             raise RuntimeError(f"camera '{role}' (index {self.index}) would not open - "
                                "is LeLab or another tool holding it?")
-        ok, frame = cap.read()
+        ok, frame = False, None
+        for _ in range(10):   # USB cameras need a few reads before the first good frame
+            ok, frame = cap.read()
+            if ok:
+                break
         if not ok:
             cap.release()
             raise RuntimeError(f"camera '{role}' (index {self.index}) opened but returned no frame")

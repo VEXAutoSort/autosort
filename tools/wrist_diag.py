@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 from autosort.config import Config          # noqa: E402
 from autosort.motion import move_smooth, read_joints  # noqa: E402
 from autosort.perception import Perception  # noqa: E402
+from tools.webui import make_display, say  # noqa: E402
 
 OUTDIR = Path("/tmp/wrist_diag")
 
@@ -67,9 +68,10 @@ def main() -> None:
     wrist = cfg.cameras["wrist"]
     cap = wrist.verify_open("wrist")
     roi = cfg.perception.gripper_roi
-    print(f"ROI={roi}  contrast_margin={cfg.perception.contrast_margin}  "
+    say(f"ROI={roi}  contrast_margin={cfg.perception.contrast_margin}  "
           f"min_area={cfg.perception.min_piece_area}")
-    print("E = capture EMPTY,  H = capture HOLDING a gear,  Q = quit", flush=True)
+    ui = make_display("wrist diagnostic (E=empty  H=held  Q=quit)")
+    say("E = capture EMPTY,  H = capture HOLDING a gear,  O/C = open/close,  Q = quit")
 
     counts = {"empty": 0, "held": 0}
     while True:
@@ -95,31 +97,33 @@ def main() -> None:
             gpos = float("nan")
         cv2.putText(vis, f"gripper {gpos:5.1f}   saved empty:{counts['empty']} held:{counts['held']}   O/C/E/H/Q",
                     (10, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        cv2.imshow("wrist diagnostic (E=empty  H=held  Q=quit)", vis)
+        ui.status(f"count {len(blobs)}   gripper {gpos:5.1f}   saved empty:{counts['empty']} held:{counts['held']}"
+                  "   O=open C=close E=capture empty H=capture held Q=quit")
+        ui.show(vis)
 
-        key = cv2.waitKey(30) & 0xFF
+        key = ui.waitkey(30) & 0xFF
         if key == ord("o"):
             move_smooth(robot, {"gripper": taught["gripper_open"]}, duration_s=0.5)
-            print(f"fingers opened to {taught['gripper_open']}", flush=True)
+            say(f"fingers opened to {taught['gripper_open']}")
         elif key == ord("c"):
             move_smooth(robot, {"gripper": taught["gripper_closed"]}, duration_s=0.6)
             time.sleep(0.4)
-            print(f"fingers closed (commanded {taught['gripper_closed']}, "
-                  f"actual {read_joints(robot)['gripper']:.1f})", flush=True)
+            say(f"fingers closed (commanded {taught['gripper_closed']}, "
+                  f"actual {read_joints(robot)['gripper']:.1f})")
         elif key in (ord("e"), ord("h")):
             label = "empty" if key == ord("e") else "held"
             counts[label] += 1
             n = counts[label]
             cv2.imwrite(str(OUTDIR / f"{label}_{n:02d}_raw.png"), frame)
             cv2.imwrite(str(OUTDIR / f"{label}_{n:02d}_annotated.png"), vis)
-            print(f"captured {label} #{n}  (count {len(blobs)}, gripper {gpos:.1f})", flush=True)
+            say(f"captured {label} #{n}  (count {len(blobs)}, gripper {gpos:.1f})")
         elif key == ord("q"):
             break
 
     cap.release()
-    cv2.destroyAllWindows()
+    ui.close()
     robot.disconnect()
-    print(f"\nsaved {counts['empty']} empty + {counts['held']} held frames to {OUTDIR}")
+    say(f"\nsaved {counts['empty']} empty + {counts['held']} held frames to {OUTDIR}")
 
 
 if __name__ == "__main__":

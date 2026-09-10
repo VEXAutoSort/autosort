@@ -1,8 +1,10 @@
 """Teach every pose the system needs BY HAND (~15 minutes, one time).
 
-Run:  python tools/teach.py
+Run:  python tools/teach.py            (add --web to force the browser view)
 The arm's torque is released — physically move it. A camera window shows the
 top view with live piece detection; click the window so it gets your keys.
+On the headless GPU box the "window" is a browser page: open
+http://<box-ip>:8765 (Mac over Tailscale: http://100.68.73.7:8765), click it once.
 
 Teach, in order:
   G  x9  grid: put a piece somewhere new in the pile zone, wait for the green
@@ -32,6 +34,7 @@ sys.path.insert(0, str(ROOT))
 from autosort.config import Config          # noqa: E402
 from autosort.motion import read_joints     # noqa: E402
 from autosort.perception import Perception  # noqa: E402
+from tools.webui import make_display, say   # noqa: E402  (browser view on the headless GPU box)
 
 OUT = ROOT / "taught.json"
 
@@ -39,12 +42,11 @@ OUT = ROOT / "taught.json"
 def main() -> None:
     override = ROOT / "cameras_override.json"
     if not override.exists():
-        print("Camera roles have never been assigned on this machine.")
-        print("Run this first (1 minute):")
-        print("  ~/.local/share/uv/tools/lelab/bin/python "
-              f"{ROOT}/tools/select_cameras.py")
-        print("macOS shuffles USB camera numbering - teaching against the wrong")
-        print("camera would corrupt every taught position.")
+        say("Camera roles have never been assigned on this machine.")
+        say("Run this first (1 minute):")
+        say(f"  python {ROOT}/tools/select_cameras.py")
+        say("USB camera numbering shuffles - teaching against the wrong")
+        say("camera would corrupt every taught position.")
         sys.exit(1)
     cfg = Config.load()
     cfg.run.dry_run = False
@@ -67,31 +69,29 @@ def main() -> None:
         except ConnectionError as e:
             if attempt == 3:
                 raise
-            print(f"bus glitch on connect ({e}); retrying in 2s [{attempt + 1}/3]")
+            say(f"bus glitch on connect ({e}); retrying in 2s [{attempt + 1}/3]")
             try:
                 robot.bus.disconnect()
             except Exception:
                 pass
             _t.sleep(2)
     robot.bus.disable_torque()
-    print("TORQUE RELEASED — move the arm by hand. Keys: G H M I B O C S Q  (U = undo last grid point)")
+    say("TORQUE RELEASED — move the arm by hand. Keys: G H M I B O C S Q  (U = undo last grid point)")
 
-    top = cfg.cameras["top"]
-    cap = cv2.VideoCapture(top.index)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, top.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, top.height)
+    cap = cfg.cameras["top"].verify_open("top")   # honours by-id paths + fourcc
+    ui = make_display("teach (G H M I B O C S Q)")
 
     def safe_joints():
         """read_joints, but a bus glitch returns None instead of crashing the session."""
         try:
             return read_joints(robot)
         except ConnectionError as e:
-            print(f"bus glitch while reading the arm ({e}) — nothing recorded, press the key again")
+            say(f"bus glitch while reading the arm ({e}) — nothing recorded, press the key again")
             return None
 
     if OUT.exists():
         data = json.loads(OUT.read_text())
-        print(f"resuming from existing taught.json: {len(data['grid'])} grid points already "
+        say(f"resuming from existing taught.json: {len(data['grid'])} grid points already "
               "recorded. New G presses ADD points; H/M/I/B/O/C overwrite just that item.")
     else:
         data = {"grid": [], "hover_delta": None, "poses": {},
@@ -150,25 +150,27 @@ def main() -> None:
         cv2.putText(vis, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
         cv2.putText(vis, f"last key seen: {last_key}", (10, 62),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow("teach (G H M I B O C S Q)", vis)
-        raw = cv2.waitKey(30)
+        ui.status(f"{status}\nlast key: {last_key}   |   G lock/record  X cancel  U undo  H hover  "
+                  f"M home  I inspect  B box  O open  C closed  S SAVE (every 4-5 points!)  Q quit")
+        ui.show(vis)
+        raw = ui.waitkey(30)
         key = raw & 0xFF
         if raw != -1 and 32 <= key < 127:
             key = ord(chr(key).lower())
             last_key = chr(key)
-            print(f"[key] {last_key!r} (code {raw})")
+            say(f"[key] {last_key!r} (code {raw})")
         elif raw != -1:
             last_key = f"code {raw}"
-            print(f"[key] non-printable code {raw}")
+            say(f"[key] non-printable code {raw}")
 
         if key == ord("g"):
             if pending_pixel is None:
                 # phase 1: arm must be CLEAR of the zone so the piece is visible
                 if not target:
-                    print("no piece detected — keep the arm out of view and check placement")
+                    say("no piece detected — keep the arm out of view and check placement")
                     continue
                 pending_pixel = (target[0], target[1])
-                print(f"target locked at pixel ({target[0]:.0f},{target[1]:.0f}) — "
+                say(f"target locked at pixel ({target[0]:.0f},{target[1]:.0f}) — "
                       "now move the gripper onto the piece and press G again")
             else:
                 # phase 2: arm is on the piece; pair the locked pixel with these joints
@@ -177,58 +179,58 @@ def main() -> None:
                     continue
                 data["grid"].append({"pixel": list(pending_pixel), "joints": joints})
                 hover_ref = joints
-                print(f"grid point recorded ({len(data['grid'])} total)")
+                say(f"grid point recorded ({len(data['grid'])} total)")
                 pending_pixel = None
         elif key == ord("x"):
             if pending_pixel is not None:
                 pending_pixel = None
-                print("locked target cancelled")
+                say("locked target cancelled")
         elif key == ord("u"):
             if not data["grid"]:
-                print("no grid points to undo")
+                say("no grid points to undo")
                 continue
             gone = data["grid"].pop()
-            print(f"undid point {len(data['grid']) + 1} at pixel "
+            say(f"undid point {len(data['grid']) + 1} at pixel "
                   f"({gone['pixel'][0]:.0f},{gone['pixel'][1]:.0f}) - re-teach it (S to persist)")
         elif key == ord("h"):
             if hover_ref is None:
-                print("teach a grid point first, then lift from it")
+                say("teach a grid point first, then lift from it")
                 continue
             now = safe_joints()
             if now is None:
                 continue
             data["hover_delta"] = {j: now[j] - hover_ref[j] for j in now}
-            print("hover delta recorded")
+            say("hover delta recorded")
         elif key == ord("m"):
             _j = safe_joints()
             if _j is None:
                 continue
             data["poses"]["home"] = _j
-            print("home recorded (make sure the arm is OUT of the pile view!)")
+            say("home recorded (make sure the arm is OUT of the pile view!)")
         elif key == ord("i"):
             _j = safe_joints()
             if _j is None:
                 continue
             data["poses"]["inspect"] = _j
-            print("inspect recorded")
+            say("inspect recorded")
         elif key == ord("b"):
             _j = safe_joints()
             if _j is None:
                 continue
             data["poses"]["box_drop"] = _j
-            print("box_drop recorded")
+            say("box_drop recorded")
         elif key == ord("o"):
             _j = safe_joints()
             if _j is None:
                 continue
             data["gripper_open"] = _j["gripper"]
-            print(f"gripper open = {data['gripper_open']:.1f}")
+            say(f"gripper open = {data['gripper_open']:.1f}")
         elif key == ord("c"):
             _j = safe_joints()
             if _j is None:
                 continue
             data["gripper_closed"] = _j["gripper"]
-            print(f"gripper closed = {data['gripper_closed']:.1f}")
+            say(f"gripper closed = {data['gripper_closed']:.1f}")
         elif key == ord("s"):
             missing = [k for k, v in data.items() if v in (None, [], {})]
             if len(data["grid"]) < 4:
@@ -236,15 +238,15 @@ def main() -> None:
             if any(p not in data["poses"] for p in ("home", "inspect", "box_drop")):
                 missing.append("poses incomplete")
             if missing:
-                print(f"not saved — missing: {missing}")
+                say(f"not saved — missing: {missing}")
                 continue
             OUT.write_text(json.dumps(data, indent=2))
-            print(f"saved {OUT}")
+            say(f"saved {OUT}")
         elif key == ord("q"):
             break
 
     cap.release()
-    cv2.destroyAllWindows()
+    ui.close()
     robot.disconnect()
 
 

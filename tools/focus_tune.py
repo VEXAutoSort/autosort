@@ -1,6 +1,6 @@
 """Live sharpness meter for physically focusing a camera lens.
 
-Run:  python tools/focus_tune.py [top|wrist]        (default: top)
+Run:  python tools/focus_tune.py [top|wrist] [--web]   (default: top; --web = browser view)
 
 The Arducam (and most M12-lens cameras) have NO focus motor — focus is set by
 rotating the lens barrel by hand. This tool replaces "looks sharp to me" with a
@@ -28,10 +28,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from autosort.config import Config  # noqa: E402
+from tools.webui import make_display, say  # noqa: E402
 
 
 def main() -> None:
-    role = sys.argv[1] if len(sys.argv) > 1 else "top"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    role = args[0] if args else "top"
     cfg = Config.load()
     if role not in cfg.cameras:
         sys.exit(f"unknown camera role '{role}' (have: {', '.join(cfg.cameras)})")
@@ -43,7 +45,9 @@ def main() -> None:
     roi = cfg.perception.pile_roi if role == "top" else cfg.perception.gripper_roi
     peak = 0.0
     ema = None
-    print("Rotate the lens until the score peaks. R resets the peak, Q quits.")
+    ui = make_display(f"focus_tune [{role}]")
+    say("Rotate the lens until the score peaks. R resets the peak, Q quits.")
+    last_print = 0.0
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -66,14 +70,20 @@ def main() -> None:
                     cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
         cv2.putText(vis, f"peak {peak:7.1f}  ({pct:4.1f}% of peak)", (10, 86),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-        cv2.imshow(f"focus_tune [{role}]", vis)
-        key = cv2.waitKey(1) & 0xFF
+        ui.status(f"sharpness {ema:7.1f}    peak {peak:7.1f}    ({pct:4.1f}% of peak)"
+                  f"    {'IN FOCUS BAND' if pct >= 95 else 'turn the lens'}    R=reset peak  Q=quit")
+        import time as _t
+        if _t.time() - last_print > 0.5:   # terminal readout too (SSH next to the rig)
+            print(f"\rsharpness {ema:7.1f}   peak {peak:7.1f}   {pct:5.1f}%   ", end="", flush=True)
+            last_print = _t.time()
+        ui.show(vis)
+        key = ui.waitkey(1) & 0xFF
         if key in (ord("q"), 27):
             break
         if key == ord("r"):
             peak = 0.0
     cap.release()
-    cv2.destroyAllWindows()
+    ui.close()
 
 
 if __name__ == "__main__":

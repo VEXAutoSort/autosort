@@ -65,7 +65,8 @@ class Arm:
         from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
         cams = {
-            name: OpenCVCameraConfig(index_or_path=c.index, width=c.width, height=c.height, fps=c.fps)
+            name: OpenCVCameraConfig(index_or_path=c.index_or_path, width=c.width, height=c.height,
+                                     fps=c.fps, fourcc=c.fourcc)
             for name, c in self.cameras.items()
             if name in ("top", "wrist")  # only arm cameras; 'box' belongs to the classifier
         }

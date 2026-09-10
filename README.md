@@ -32,7 +32,35 @@ poses in both modes, with interpolated (speed-limited) motion throughout.
 
 ---
 
-## Running on the lab Mac (already set up — use these exact commands)
+## Running on the GPU box (Linux, headless) — current host since 2026-09-09
+
+```bash
+cd ~/autosort && source ~/autosort-train/.venv/bin/activate     # lerobot 0.6.0 + placo + opencv
+python tools/validate_taught.py          # offline: LOOCV table, guards, reach sector (no hardware)
+python tools/teach.py                    # browser view: http://100.68.73.7:8765 (Tailscale) — click the page, then type keys
+python tools/focus_tune.py top           # same URL; big sharpness number while you turn the lens
+python run.py                            # real run (dry_run false in config.yaml)
+```
+
+* No monitor: every window tool auto-switches to a browser live view (`tools/webui.py`,
+  port 8765) when there is no `$DISPLAY`; `--web` forces it. Anything that runs longer
+  than a minute goes in `tmux` (WiFi drops kill plain SSH sessions).
+* Devices are addressed by stable `/dev/serial/by-id` / `/dev/v4l/by-id` paths
+  (`cameras_override.json` holds the camera paths; `arm.port` in config.yaml the serial one).
+  `/dev/ttyACM*` and `/dev/video*` numbers swap between boots — never use them.
+* Calibration: `arm.id: follower_arm` → `~/.cache/huggingface/lerobot/calibration/robots/so_follower/follower_arm.json`
+  (same physical arm as the glass-tube datasets). Probed 2026-09-09: fingers touch at raw 1531,
+  calibrated closed = 1518, i.e. "closed" is 13 ticks past touch — the recalibrated behaviour
+  the hold logic assumes. Redo the probe (script in git history) after any jaw swap.
+* Both cameras run YUYV (the Innomaker's MJPEG is corrupt on USB hubs). The URDF at
+  `/tmp/so101_urdf/so101_nomesh.urdf` vanishes on reboot: re-download `so101_new_calib.urdf`
+  from TheRobotStudio/SO-ARM100 (`Simulation/SO101/`) and regex the 34 `<mesh .../>` refs
+  into `<box size="0.01 0.01 0.01"/>`.
+* Serial + cameras are both openable from a plain shell here (no macOS camera-permission
+  wall), so Claude can drive the whole re-commissioning; a user only has to move the arm
+  and turn the lens.
+
+## Running on the lab Mac (previous host — kept for reference)
 
 No install needed; the LeRobot environment is already on this machine. Every
 command works from any folder. Quit LeLab first — it owns the cameras and the

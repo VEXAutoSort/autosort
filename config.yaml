@@ -12,9 +12,9 @@ run:
 
 # --- SO-ARM101 follower --------------------------------------
 arm:
-  port: /dev/tty.usbmodem5A7A0587411        # find with scripts/find_ports.sh
-  id: so-arm101                             # names the calibration file — matches the existing LeLab calibration
-  device: mps                               # mps (Apple Silicon) | cuda | cpu
+  port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A058741-if00   # Linux by-id (stable across reboots; /dev/ttyACM* is not)
+  id: follower_arm                          # names the lerobot calibration file (~/.cache/huggingface/lerobot/calibration/robots/so_follower/<id>.json) - same arm as the glass-tube work
+  device: cuda                              # mps (Apple Silicon) | cuda | cpu
   pick_mode: classical                      # classical (taught poses, no model) | act (experimental)
   solver: analytic                          # analytic = homography + inverse kinematics (6x more accurate);
                                             # interpolate = old taught-pose blending
@@ -51,11 +51,12 @@ arm:
 
 # --- Cameras -------------------------------------------------
 # Indices are managed by tools/select_cameras.py (writes cameras_override.json)
-# because macOS shuffles USB camera numbering. Don't hand-edit indices.
+# because USB camera numbering shuffles (macOS always; Linux between boots).
+# On Linux the override holds /dev/v4l/by-id/... paths, which never move.
 # Add a 'box' camera entry once the classification enclosure is built.
 cameras:
-  top:   {index: 0, width: 960, height: 600, fps: 30}
-  wrist: {index: 1, width: 640, height: 480, fps: 30}
+  top:   {index: 0, width: 960, height: 600, fps: 30, fourcc: YUYV}
+  wrist: {index: 1, width: 640, height: 480, fps: 30, fourcc: YUYV}
 
 # --- Perception (classical CV — no training needed) ----------
 # Assumes LIGHT surface with DARKER pieces (team decision 2026-07).
