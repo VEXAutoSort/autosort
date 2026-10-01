@@ -10,6 +10,14 @@ run:
   dry_run: true             # true = simulate everything (no arm/cameras/models needed)
   max_consecutive_fails: 8  # give up after this many failed picks in a row
 
+# --- Grasp strategy (the switch) -----------------------------
+grasp:
+  mode: geometric           # geometric (segment + PCA, no training) | act (trained policy)
+  min_piece_area: 300       # px^2 — smallest blob treated as a graspable piece
+  # 3x3 homography: TOP-cam pixels -> table millimetres. Calibrate with scripts/calibrate_homography.py.
+  # identity (below) outputs raw pixels — NOT metric — until you calibrate it.
+  homography: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
 # --- SO-ARM101 follower + ACT pick policy --------------------
 arm:
   port: /dev/tty.usbmodemCHANGE_ME_ARM     # find with scripts/find_ports.sh
@@ -22,14 +30,23 @@ arm:
     home:     {shoulder_pan: 0,  shoulder_lift: -100, elbow_flex: 100, wrist_flex: 40, wrist_roll: 0, gripper: 50}
     inspect:  {shoulder_pan: 0,  shoulder_lift: -60,  elbow_flex: 60,  wrist_flex: 0,  wrist_roll: 0, gripper: 30}
     box_drop: {shoulder_pan: 90, shoulder_lift: -40,  elbow_flex: 50,  wrist_flex: 20, wrist_roll: 0, gripper: 30}
+  ik:                          # geometry for GEOMETRIC-grasp execution — MEASURE these on your arm (mm)
+    link_1: 116.0              # shoulder pivot -> elbow
+    link_2: 135.0             # elbow -> wrist pivot
+    tool_len: 105.0          # wrist pivot -> gripper tip
+    base_height: 120.0       # shoulder pivot height above the table
+    surface_z: 12.0          # gripper-tip height at grasp (above table)
+    approach_clearance: 60.0 # descend to the grasp from this height above surface_z
+    # map geometric angle (deg) -> your arm's command:  cmd = sign*angle + offset  (calibrate per joint)
+    calib: {shoulder_pan: [0,1], shoulder_lift: [0,1], elbow_flex: [0,1], wrist_flex: [0,1], wrist_roll: [0,1]}
 
 # --- Cameras -------------------------------------------------
 # 'top' + 'wrist' feed the ACT policy AND our checks (registered on the arm).
 # 'box' is the Arducam inside the classification enclosure (opened separately).
 cameras:
-  top:   {index: 0, width: 960, height: 600, fps: 30}
-  wrist: {index: 1, width: 640, height: 480, fps: 30}
-  box:   {index: 2, width: 640, height: 480, fps: 30}
+  top:   {index: 1, width: 960, height: 600, fps: 30}
+  wrist: {index: 2, width: 640, height: 480, fps: 30}
+  box:   {index: 0, width: 640, height: 480, fps: 30}
 
 # --- Perception (classical CV — no training needed) ----------
 perception:
@@ -39,10 +56,14 @@ perception:
   empty_frames: 3                    # this many consecutive "0 pieces" reads = pile empty
 
 # --- Classifier (Arducam in the box) -------------------------
+# Measures the piece in millimetres and snaps it to the nearest VEX part.
+# No training, no weights — add a part by adding a row to the catalog.
 classifier:
-  model: models/classifier.pt        # TorchScript classifier (missing -> everything is 'unknown')
+  catalog: autosort/classification/vex_parts.yaml
   labels: [gear, standoff, screw, nut, spacer, unknown]
-  min_confidence: 0.6                # below this -> route to the 'unknown' bin
+  px_per_mm: 12.0                    # MEASURE THIS -> scripts/calibrate_scale.py
+  max_distance: 1.5                  # nothing in the catalog this close -> 'unknown'
+  min_confidence: 0.35               # two labels fit about equally well -> 'unknown'
   settle_s: 0.5                      # wait after the drop before imaging
 
 # --- Router — the rotating arm that drops into the bins ------

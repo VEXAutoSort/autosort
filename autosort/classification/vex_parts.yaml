@@ -1,0 +1,65 @@
+# VEX part table, millimetres, one row per part in its usual resting pose.
+#
+# label/name are required; every other field is OPTIONAL and a missing field is
+# simply not compared. Start from these published dimensions, then tighten them
+# with real measurements:  python scripts/preview_classify.py  (press 'r')
+#
+# fields: length_mm width_mm extent circularity solidity holes
+
+# --- gears: 24 diametral pitch, so outside diameter = (teeth + 2) / 24 inches ---
+- {label: gear, name: gear 12T, length_mm: 14.82, width_mm: 14.82}
+- {label: gear, name: gear 36T, length_mm: 40.22, width_mm: 40.22}
+- {label: gear, name: gear 60T, length_mm: 65.62, width_mm: 65.62}
+- {label: gear, name: gear 84T, length_mm: 91.02, width_mm: 91.02}
+
+# --- standoffs: #8-32, hex 6.35 mm across flats; lying on a flat it
+#     projects to a full rectangle, hence extent near 1 ---
+- {label: standoff, name: standoff 0.25", length_mm: 6.35, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 0.5", length_mm: 12.70, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 0.75", length_mm: 19.05, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 1", length_mm: 25.40, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 1.5", length_mm: 38.10, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 2", length_mm: 50.80, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 2.5", length_mm: 63.50, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 3", length_mm: 76.20, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 4", length_mm: 101.60, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 5", length_mm: 127.00, width_mm: 6.35, extent: 0.97, holes: 0}
+- {label: standoff, name: standoff 6", length_mm: 152.40, width_mm: 6.35, extent: 0.97, holes: 0}
+
+# --- screws: #8-32. length = nominal + 2 mm for the head; width_mm IS the head
+#     diameter (6.60 mm for a star-drive button head) because minAreaRect wraps it.
+#     A screw is nearly as wide as a standoff, so the low extent -- a thin shank in a
+#     wide box -- is what actually separates the two. Re-measure both if you
+#     switch head type ---
+- {label: screw, name: screw 0.25", length_mm: 8.35, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 0.375", length_mm: 11.52, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 0.5", length_mm: 14.70, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 0.625", length_mm: 17.88, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 0.75", length_mm: 21.05, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 1", length_mm: 27.40, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 1.25", length_mm: 33.75, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 1.5", length_mm: 40.10, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 2", length_mm: 52.80, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 2.25", length_mm: 59.15, width_mm: 6.60, extent: 0.68, holes: 0}
+- {label: screw, name: screw 2.5", length_mm: 65.50, width_mm: 6.60, extent: 0.68, holes: 0}
+
+# Standing on end a standoff shows only its hex cross-section, so its length is
+# invisible and one row covers every length. This is deliberately identical to the
+# low-profile nut below: two labels at the same dimensions collapse the margin, so
+# the piece lands in the reject bin to be re-presented instead of being guessed.
+- {label: standoff, name: standoff on end, length_mm: 7.33, width_mm: 6.35, holes: 1}
+
+# --- nuts: keps / nylock / plain hex all share 8.73 mm across flats, so one row
+#     covers the family. circularity is the only thing separating these from a
+#     nylon spacer of the same size -- measure both and tighten it if they collide ---
+- {label: nut, name: hex nut 11/32, length_mm: 10.08, width_mm: 8.73, holes: 1}
+- {label: nut, name: low-profile hex nut 1/4, length_mm: 7.33, width_mm: 6.35, holes: 1}
+
+# --- spacers: nylon ODs are published; resting on a face you see the full circle ---
+- {label: spacer, name: nylon spacer 0.375" OD, length_mm: 9.52, width_mm: 9.52, holes: 1}
+- {label: spacer, name: nylon spacer 0.5" OD, length_mm: 12.70, width_mm: 12.70, holes: 1}
+
+# Black plastic spacers come in 4.6 mm and 8.0 mm thicknesses (published) but VEX
+# does not publish the OD. Measure one, fill in LENGTH, and uncomment:
+# - {label: spacer, name: plastic spacer 4.6, length_mm: LENGTH, width_mm: 4.60, holes: 0}
+# - {label: spacer, name: plastic spacer 8.0, length_mm: LENGTH, width_mm: 8.00, holes: 0}

@@ -5,7 +5,7 @@ and checks the couple of things that would otherwise fail deep in a run.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,7 @@ class ArmCfg:
     pick_timeout_s: float
     gripper_empty_pos: float
     poses: dict[str, dict[str, float]]
+    ik: dict[str, Any] = field(default_factory=dict)  # link geometry for geometric-grasp execution
 
 
 @dataclass
@@ -48,9 +49,11 @@ class PerceptionCfg:
 
 @dataclass
 class ClassifierCfg:
-    model: str
+    catalog: str                       # VEX part table (mm); see autosort/classification/vex_parts.yaml
     labels: list[str]
-    min_confidence: float
+    px_per_mm: float                   # measure it: scripts/calibrate_scale.py
+    max_distance: float                # nearest-entry distance above this -> 'unknown'
+    min_confidence: float              # margin over the runner-up label below this -> 'unknown'
     settle_s: float
 
 
@@ -63,6 +66,13 @@ class RouterCfg:
 
 
 @dataclass
+class GraspCfg:
+    mode: str                          # "geometric" | "act"
+    min_piece_area: int                # px^2 — ignore blobs smaller than this
+    homography: list[list[float]]      # 3x3 TOP-cam pixel -> table(mm); calibrate via scripts/calibrate_homography.py
+
+
+@dataclass
 class Config:
     run: RunCfg
     arm: ArmCfg
@@ -70,6 +80,7 @@ class Config:
     perception: PerceptionCfg
     classifier: ClassifierCfg
     router: RouterCfg
+    grasp: GraspCfg
 
     @staticmethod
     def load(path: str | Path | None = None) -> "Config":
@@ -87,6 +98,7 @@ class Config:
             perception=PerceptionCfg(**raw["perception"]),
             classifier=ClassifierCfg(**raw["classifier"]),
             router=RouterCfg(**raw["router"]),
+            grasp=GraspCfg(**raw["grasp"]),
         )
         cfg.validate()
         return cfg
@@ -94,6 +106,10 @@ class Config:
     def validate(self) -> None:
         if self.run.mode not in ("continuous", "step"):
             raise ValueError("run.mode must be 'continuous' or 'step'")
+        if self.grasp.mode not in ("geometric", "act"):
+            raise ValueError("grasp.mode must be 'geometric' or 'act'")
+        if self.classifier.px_per_mm <= 0:
+            raise ValueError("classifier.px_per_mm must be > 0 — run scripts/calibrate_scale.py")
         # every class label must have a bin, or a piece could be unroutable mid-run
         missing = [lbl for lbl in self.classifier.labels if lbl not in self.router.bins]
         if missing:

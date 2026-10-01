@@ -12,8 +12,9 @@ import argparse
 import logging
 
 from .arm import Arm
-from .classifier import Classifier
+from .classification import Classifier
 from .config import Config
+from .grasp import make_grasper
 from .perception import Perception
 from .router import Router
 
@@ -25,6 +26,7 @@ class Pipeline:
         self.cfg = cfg
         dry = cfg.run.dry_run
         self.arm = Arm(cfg.arm, cfg.cameras, dry)
+        self.grasper = make_grasper(cfg, self.arm)  # geometric or ACT, per config
         self.perception = Perception(cfg.perception, dry)
         self.classifier = Classifier(cfg.classifier, cfg.cameras["box"], dry)
         self.router = Router(cfg.router, dry)
@@ -55,8 +57,11 @@ class Pipeline:
                     log.warning("%d failed picks in a row — stopping.", fails)
                     break
 
-                # 2. pick one, then confirm it really is exactly one
-                self.arm.pick()
+                # 2. pick one (geometric or ACT), then confirm it's exactly one
+                if not self.grasper.grasp():
+                    log.info("no graspable piece — retrying")
+                    fails += 1
+                    continue
                 if not self.arm.gripper_holding():
                     log.info("empty grasp — retrying")
                     fails += 1

@@ -5,8 +5,8 @@ description = "Autonomous VEX-hardware sorter: SO-ARM101 pick -> camera classify
 requires-python = ">=3.12"
 dependencies = [
     "lerobot[feetech]",      # SO-ARM101 control + ACT policy inference
-    "huggingface_hub[cli]",  # pull the trained policy / classifier weights
-    "opencv-python",         # camera capture + classical-CV checks
+    "huggingface_hub[cli]",  # pull the trained ACT pick policy
+    "opencv-python",         # camera capture + classical-CV perception/classification
     "numpy",
     "pyyaml",                # config.yaml
     "pyserial",              # rotating-arm (router) controller over serial
@@ -20,4 +20,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["autosort"]
+packages = ["autosort", "autosort.classification"]
+
+[tool.setuptools.package-data]
+"autosort.classification" = ["*.yaml"]
