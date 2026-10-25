@@ -1,0 +1,11 @@
+# AutoSort orchestrator — Ubuntu PC (RTX 5090). Install inside the project venv only.
+#   pip install -r orchestrator/requirements.txt
+#   torch for CUDA 12.8 if needed: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+lerobot[feetech]==0.5.2        # pinned to what Henry trains with
+feetech-servo-sdk              # scservo_sdk — the machine bus (IDs 7/8/9)
+python-kasa>=0.7               # Kasa HS103 smart plug (KLAP auth)
+onnxruntime-gpu                # YOLOv8n-cls ONNX classifier (falls back to CPU provider)
+opencv-python
+numpy
+pyyaml
+pytest

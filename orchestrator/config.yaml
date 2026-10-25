@@ -1,0 +1,110 @@
+# ============================================================
+#  AutoSort orchestrator — every tunable in one file.
+#  `null` = VERIFY on the hardware before a real run (CALIBRATION.md).
+#  The loader refuses to start a real run while any VERIFY value is null;
+#  --sim / --dry-run work regardless.
+# ============================================================
+
+ports:
+  arm: /dev/arm           # udev symlink (scripts/99-autosort.rules); fallback /dev/ttyACM*
+  machine: /dev/machine
+
+cameras:
+  overhead: 0             # VERIFY: v4l2-ctl --list-devices  (Arducam AR0234, 960x600)
+  wrist: 2                # VERIFY (Innomaker)
+  cup: null               # third camera over the cup, if one is added
+  width: 960              # the overhead Arducam's native size
+  height: 600
+  sizes: {wrist: [640, 480], cup: [640, 480]}   # per-camera sizes; LeRobot refuses a camera that can't deliver them
+  table_roi: [0.05, 0.05, 0.95, 0.95]   # [x0,y0,x1,y1] fraction of the overhead frame = the table
+  # Which camera sees the part sitting in the cup. VERIFY by eye:
+  #   overhead  if the cup is inside the overhead camera's field of view (set cup_roi)
+  #   wrist     if the wrist camera sees the cup with the arm parked at HOME
+  #   cup       a third USB camera (cameras.cup above)
+  classify_camera: overhead
+  cup_roi: [0.70, 0.60, 0.95, 0.95]     # crop of classify_camera that contains the cup
+
+servo:
+  baud: 1000000
+  bucket_id: 7
+  distributor_id: 8
+  cup_id: 9
+
+bucket:                   # ID 7, position mode. Read with: python machine/machine.py where 7
+  rest_pos: null          # VERIFY
+  pour_pos: null          # VERIFY (expect ~45-60 deg = 500-700 counts from rest)
+  dwell_s: 1.5
+
+distributor:              # ID 8, step mode, drives the ring through the pinion
+  ratio: 3.26             # servo turns per ring turn. VERIFY by counting teeth (ring/pinion)
+  bins: 7
+  bin0_servo_pos: null    # VERIFY: servo raw reading with the ring parked at bin 0
+  tolerance_counts: 20
+  settle_s: 0.3
+  max_excursion_turns: 1.5   # software wind-up bound; the ring may go the long way to respect it
+
+cup:                      # ID 9, position mode
+  hold_pos: null          # VERIFY
+  dump_pos: null          # VERIFY
+  dwell_s: 0.8
+
+shaker:                   # Kasa HS103 smart plug; ON/OFF only, knob at ~30%
+  ip: 192.168.1.38
+  user: ${KASA_USER}      # Kasa account login (KLAP). ${VAR} is read from the environment
+  password: ${KASA_PASS}
+  burst_s: 1.0
+
+timing:
+  settle_s: 0.7
+  pick_timeout_s: 25
+  max_doses_per_fill: 3
+  pick_retries: 2
+
+vision:
+  min_part_area: 150      # px^2 on the overhead frame; raise if specks are counted as parts
+  dark_parts: true        # parts darker than the table -> true; bright parts on dark table -> false
+
+classifier:
+  backend: onnx           # onnx (YOLOv8n-cls export) | catalog (autosort/classification measure-and-match)
+  model: models/autosort_cls.onnx
+  labels: [screw, nut, standoff, spacer, collar, other]   # ONNX output order — must match training
+  threshold: 0.85         # confidence below this -> REJECT
+  class_to_bin: {screw: 0, nut: 1, standoff: 2, spacer: 3, collar: 4, other: 5, REJECT: 6}
+  catalog:                # only used when backend: catalog
+    path: autosort/classification/vex_parts.yaml
+    px_per_mm: 12.0
+    max_distance: 1.5
+    min_confidence: 0.35
+
+arm:                      # SO-101 follower through LeRobot; the IK pick reuses autosort/arm.py + autosort/grasp.py
+  mode: geometric         # geometric = segment + PCA + IK (what we use) | act = LeRobot policy (reference only)
+  id: autosort_follower   # names the LeRobot calibration file
+  # LeRobot camera name -> cameras.* entry. The arm OWNS these V4L2 devices; the orchestrator
+  # takes its counting/classifying frames from the arm when overhead is listed here (it must be:
+  # the grasp planner looks at the overhead frame). Drop `wrist` if the wrist camera is not needed.
+  cameras: {top: overhead, wrist: wrist}
+  poses:                  # joint targets in degrees — VERIFY: read them off lerobot-teleoperate
+    home:    {shoulder_pan: 0,  shoulder_lift: -100, elbow_flex: 100, wrist_flex: 40, wrist_roll: 0, gripper: 50}
+    inspect: {shoulder_pan: 0,  shoulder_lift: -60,  elbow_flex: 60,  wrist_flex: 0,  wrist_roll: 0, gripper: 30}
+    drop:    {shoulder_pan: 90, shoulder_lift: -40,  elbow_flex: 50,  wrist_flex: 20, wrist_roll: 0, gripper: 30}  # over the cup / ramp — the taught drop position
+  home_tolerance_deg: 6   # "back at HOME" when every joint (gripper excluded) is within this
+  gripper_empty_pos: 5.0  # gripper % below which it closed on nothing -> empty grasp, retry
+  grasp:
+    min_piece_area: 300   # px^2 — smallest blob the planner will try to grasp
+    # 3x3 overhead-pixel -> table-mm homography. VERIFY: python scripts/calibrate_homography.py --index <overhead>
+    # Identity (below) = uncalibrated; a real run refuses to start with it.
+    homography: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+  ik:                     # arm geometry for the top-down IK — MEASURE on the arm (mm)
+    link_1: 116.0         # shoulder pivot -> elbow
+    link_2: 135.0         # elbow -> wrist pivot
+    tool_len: 105.0       # wrist pivot -> gripper tip
+    base_height: 120.0    # shoulder pivot height above the table
+    surface_z: 12.0       # gripper-tip height at grasp (above table)
+    approach_clearance: 60.0   # descend to the grasp from this height above surface_z
+    # geometric angle (deg) -> arm command: cmd = sign*angle + offset, per joint (calibrate on the arm)
+    calib: {shoulder_pan: [0, 1], shoulder_lift: [0, 1], elbow_flex: [0, 1], wrist_flex: [0, 1], wrist_roll: [0, 1]}
+  # --- act mode only (not used on this rig) ---
+  policy: ""
+  device: cuda
+  task: ""
+  min_policy_s: 4.0

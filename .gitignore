@@ -8,3 +8,7 @@ models/*
 !models/.gitkeep
 
 .DS_Store
+
+# orchestrator run logs (runs/<timestamp>/run.log, log.csv)
+runs/
+.pytest_cache/
