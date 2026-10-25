@@ -166,14 +166,14 @@ class RealRig(Rig):
         cfg = self.cfg
         # 1. cameras — lock the overhead before anything opens it
         vision.lock_camera(cfg.cameras.overhead)
-        arm_owns = set(cfg.arm.policy_cameras.values()) if not self.skip_arm else set()
+        arm_owns = set(cfg.arm.cameras.values()) if not self.skip_arm else set()
         for name in ("overhead", "wrist", "cup"):
             index = getattr(cfg.cameras, name)
             if index is None or name in arm_owns:
                 continue
             if name != "overhead" and name != cfg.cameras.classify_camera:
                 continue
-            cam = vision.Camera(index, cfg.cameras.width, cfg.cameras.height)
+            cam = vision.Camera(index, *cfg.cameras.size(name))
             cam.open()
             self._cams[name] = cam
         self._arm_owns = arm_owns
@@ -197,15 +197,15 @@ class RealRig(Rig):
         # 3. shaker
         self.shaker = Shaker(cfg.shaker.ip, cfg.shaker.user, cfg.shaker.password)
 
-        # 4. arm
+        # 4. arm (also the owner of the cameras in arm.cameras)
         if not self.skip_arm:
-            from .arm import PolicyArm
+            from .arm import make_arm
 
-            self.arm = PolicyArm(cfg.ports.arm, cfg.arm, cfg.cameras)
+            self.arm = make_arm(cfg.ports.arm, cfg.arm, cfg.cameras)
             self.arm.connect()
             self.arm.home()
-            if not self.manual_pick:
-                self.arm.load_policy()
+        # some UVC drivers re-enable auto exposure when a device is (re)opened — lock again now
+        vision.lock_camera(cfg.cameras.overhead)
 
         # 5. classifier
         if cfg.classifier.backend == "onnx":
@@ -217,9 +217,16 @@ class RealRig(Rig):
             self._classifier.set_background(self._cup_frame())  # cup must be empty now
 
     def _frame(self, name: str):
+        """A BGR frame from camera `name`, whoever owns the device.
+
+        LeRobot's OpenCV cameras hand back RGB; our own captures are BGR. Everything
+        downstream (count_parts, the classifiers) is written for BGR, so arm-owned
+        frames are converted here, once."""
         if name in self._arm_owns:
-            obs_name = next(k for k, v in self.cfg.arm.policy_cameras.items() if v == name)
-            return self.arm.frame(obs_name)
+            import cv2
+
+            lerobot_name = next(k for k, v in self.cfg.arm.cameras.items() if v == name)
+            return cv2.cvtColor(self.arm.frame(lerobot_name), cv2.COLOR_RGB2BGR)
         return self._cams[name].grab()
 
     def _cup_frame(self):

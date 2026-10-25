@@ -95,10 +95,33 @@ through the smart plug (≈0.2 s latency each way).
 * `vision.min_part_area`: the smallest part (a #8 nut) should be several times
   this many pixels; specks and shadows below it.
 
-## Arm — `arm.home_pose`
+## Arm — poses, homography, IK
 
-With `lerobot-teleoperate` (or Henry's recording script) running, park the arm
-in the pose every policy episode starts and ends in and copy the six joint
-values. `home_tolerance_deg` (6°) is how close "back at HOME" must be; if the
-policy's parked pose varies more than that between episodes, loosen it rather
-than letting good picks time out.
+The pick is scripted geometry, so there are three things to teach it.
+
+**Poses** (`arm.poses`). With `lerobot-teleoperate` running, move the arm by
+hand and copy the six joint values (degrees) for:
+
+* `home` — parked, clear of the table and the cup, gripper half open. Every
+  cycle starts and ends here; `home_tolerance_deg` (6°) is how close counts.
+* `inspect` — lifted, holding a part, out of the overhead camera's table view.
+* `drop` — gripper directly over the cup (the box on the distributor) at the
+  height you want it to open. This is the taught drop position.
+
+**Homography** (`arm.grasp.homography`). Put four markers on the table at known
+positions measured in the arm's frame (mm), edit `TABLE_POINTS` in
+`scripts/calibrate_homography.py`, run it with `--index <overhead index>`, click
+the four markers in order, paste the 3×3 matrix. Redo it whenever the overhead
+camera or the arm base moves.
+
+**IK geometry** (`arm.ik`). Measure `link_1`, `link_2`, `tool_len`,
+`base_height` with a ruler; set `surface_z` to the gripper-tip height at grasp
+and `approach_clearance` to how high above that it should descend from. Then
+fix the per-joint `calib: [offset, sign]` so a commanded geometric angle
+matches the arm's calibrated zero and direction — command a known table point
+with `python -c` or a notebook, see which joint goes the wrong way, flip its
+sign, repeat.
+
+**Check it**: `python scripts/preview_grasp.py --index <overhead index>` shows
+the blob, the long axis (green) and where the jaws will close (red). Then
+`python -m orchestrator.run --max-parts 1`.

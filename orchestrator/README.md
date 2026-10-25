@@ -4,9 +4,12 @@ Runs the whole machine end to end on the Ubuntu PC:
 
 ```
 bucket tips (ID 7) → table shakes (Kasa plug) → overhead camera counts
-  → arm picks one part into the cup (LeRobot ACT) → classify the part in the cup
+  → arm picks one part into the cup (IK grasp) → overhead camera classifies the part in the cup
   → distributor swivels to the bin (ID 8) → cup tips (ID 9) → next part
 ```
+
+"Cup" = the small box on top of the distributor that the arm drops the part
+into, the one the tipper servo empties down the ramp into the aimed bin.
 
 When the overhead camera sees an empty table the bucket tips again; after
 `max_doses_per_fill` empty tips in a row the bucket is declared empty and the
@@ -27,15 +30,16 @@ python -m orchestrator.run                   # the real machine
 | `orchestrator/hw.py` | `Rig` (interlocks) + `RealRig` (the hardware) | hardware changes |
 | `orchestrator/sim.py` | `SimRig` — all stubs | tests |
 | `orchestrator/vision.py` | count parts on the table; classify the part in the cup | vision |
-| `orchestrator/arm.py` | the LeRobot policy wrapper | **Henry** — swap the policy here |
+| `orchestrator/arm.py` | the arm: IK grasp (`autosort/arm.py` + `autosort/grasp.py`) → drop pose → HOME | arm work |
 | `machine/machine.py` | servo bus (IDs 7/8/9) + shaker, with a CLI | hardware bring-up |
 | `vision-tools/2_lock_camera_linux.sh` | pins the overhead camera's exposure/WB/gain | runs automatically in INIT |
-| `tests/` | state machine, interlocks, distributor multi-turn math | `python -m pytest tests` |
+| `tests/` | state machine, interlocks, distributor multi-turn math, arm config mapping | `python -m pytest tests` |
 
-The cycle only talks to a `Rig`. The policy only lives in `arm.py`. Neither
-imports the other, so Henry can replace the policy (or the whole arm wrapper)
-without the cycle changing, and the cycle can be tested on a laptop with no
-hardware installed.
+The cycle only talks to a `Rig`. The arm only lives in `arm.py`, and the IK
+pick itself is the pre-existing code in `autosort/` (segment the overhead frame
+→ PCA centroid + grasp axis → homography to table mm → top-down IK → lift →
+scripted move to the taught `drop` pose over the cup → open → HOME). Swapping
+the grasp strategy means touching `arm.py` only.
 
 ## PC setup (one time)
 
@@ -54,9 +58,10 @@ pip install -r orchestrator/requirements.txt
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
-`orchestrator/requirements.txt` pins **LeRobot 0.5.2** (what Henry trains with),
-`feetech-servo-sdk` (the `scservo_sdk` module for the machine bus), `python-kasa`
-(the smart plug), `onnxruntime-gpu` (the classifier), `opencv-python`, `pyyaml`.
+`orchestrator/requirements.txt` pins **LeRobot 0.5.2** (the SO-101 driver
+`autosort/arm.py` is written against), `feetech-servo-sdk` (the `scservo_sdk`
+module for the machine bus), `python-kasa` (the smart plug), `onnxruntime-gpu`
+(the classifier), `opencv-python`, `pyyaml`.
 
 ### udev rules → `/dev/arm` and `/dev/machine`
 
@@ -75,8 +80,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ls -l /dev/arm /dev/machine
 ```
 
-Only **one process** may hold each port. Close any `lerobot-teleoperate`,
-`machine.py where`, or notebook before starting the orchestrator.
+Only **one process** may hold each port and each camera. Close any
+`lerobot-teleoperate`, `machine.py where`, `preview_grasp.py` or notebook before
+starting the orchestrator.
 
 ### Kasa login
 
@@ -91,22 +97,24 @@ python machine/machine.py shake 1.0        # should buzz the table for 1 s
 ## Filling in every VERIFY value
 
 `config.yaml` ships with the values that can only come from the hardware set to
-`null`. A real run refuses to start until they are filled in; `--sim` ignores them.
+`null` (or, for the homography, identity). A real run refuses to start until
+they are filled in and tells you which are missing; `--sim` ignores them.
 
 | key | how to get it |
 |---|---|
-| `cameras.overhead` / `wrist` | `v4l2-ctl --list-devices` — the Arducam AR0234 is the overhead, the Innomaker is the wrist. Indices can change across reboots; the udev-style `/dev/v4l/by-id/...` path also works where an index is expected if you prefer stability. |
-| `cameras.classify_camera` + `cup_roi` | Look at the overhead frame (`python scripts/preview_classify.py` with the box cam index, or any viewer). If the cup is in view: `overhead` and set `cup_roi` to the fraction of the frame containing the cup. Otherwise `wrist` (arm parked at HOME, looking at the cup) or add a third camera (`cup`). |
-| `cameras.table_roi` | The fraction of the overhead frame that is table and nothing else (exclude the bucket lip and the cup). |
+| `cameras.overhead` / `wrist` | `v4l2-ctl --list-devices` — the Arducam AR0234 is the overhead, the Innomaker is the wrist. Indices can change across reboots. |
+| `cameras.sizes` | the resolution each camera must deliver; LeRobot refuses a camera that cannot. Arducam 960×600, Innomaker 640×480 are the defaults. |
+| `cameras.cup_roi` | the fraction `[x0,y0,x1,y1]` of the **overhead** frame that contains the cup (the drop box on the distributor). Grab a frame, read the pixel corners, divide by width/height. |
+| `cameras.table_roi` | the fraction of the overhead frame that is table and nothing else (exclude the bucket lip and the cup). |
 | `bucket.rest_pos`, `bucket.pour_pos` | CALIBRATION.md — `machine.py torque 7 off`, move by hand, `machine.py where 7`. |
 | `cup.hold_pos`, `cup.dump_pos` | same, for ID 9. |
 | `distributor.bin0_servo_pos` | same, for ID 8 with the ring at bin 0. |
-| `distributor.ratio` | Count the teeth: `ratio = ring_teeth / pinion_teeth` (≈ 3.26 from the 93 / 28.5 mm diameters). A wrong ratio shows up as a growing aim error around the ring. |
-| `arm.home_pose` | Read the joints off `lerobot-teleoperate` with the arm parked where the policy episodes start and end. |
-| `arm.policy` | HF id or local path. `arm.policy_cameras` must list the same camera names the policy was trained with; if the overhead camera is one of them, the arm owns it and the orchestrator takes counting frames from the robot observation automatically. |
-| `arm.policy_cameras` | If Henry's policy was trained with `{wrist, top}`, set `{wrist: wrist, top: overhead}`. |
-| `classifier.model` / `labels` | the ONNX export of the YOLOv8n-cls model; `labels` in the model's output order. Put the file under `models/`. |
-| `vision.min_part_area`, `dark_parts` | Shake a few parts onto the table, run `python -c` with `vision.count_parts` on a grab, or just run `--skip-arm --max-parts 1` and read the `table count =` lines. |
+| `distributor.ratio` | Count the teeth: `ratio = ring_teeth / pinion_teeth` (≈ 3.26 from the 93 / 28.5 mm diameters). A wrong ratio shows up as an aim error that grows with distance. |
+| `arm.poses.home / inspect / drop` | Read the six joints off `lerobot-teleoperate` with the arm parked (home), lifted holding a part (inspect), and over the cup with the gripper where you want it to open (drop — the taught drop position). |
+| `arm.grasp.homography` | `python scripts/calibrate_homography.py --index <overhead index>` — 4 markers at known table-mm positions in the arm's frame, click them, paste the matrix. Redo if the camera or the arm moves. |
+| `arm.ik.*` | measure the arm: link lengths, base height, the grasp height; then tune `calib` (sign/offset per joint) until `preview_grasp.py`'s red line lands where the gripper actually closes. |
+| `classifier.model` / `labels` | the ONNX export of the YOLOv8n-cls model (coming); `labels` in the model's output order. Put the file under `models/`. Until then `backend: catalog` uses the repo's measure-and-match classifier (add `gear` to `class_to_bin` if you use it). |
+| `vision.min_part_area`, `dark_parts` | Shake a few parts onto the table and run `--skip-arm --max-parts 1`; read the `table count =` lines. |
 
 ## Bring-up order (recommended)
 
@@ -115,12 +123,14 @@ python machine/machine.py shake 1.0        # should buzz the table for 1 s
 3. `python machine/machine.py scan` → expect `[7, 8, 9]`. Calibrate per CALIBRATION.md.
 4. `export KASA_USER=... KASA_PASS=...; python machine/machine.py shake 1`.
 5. `python -m orchestrator.run --skip-arm --max-parts 3` — feeder, shaker,
-   camera count, classifier, distributor and cup, no arm. Picks "succeed" instantly,
-   so you will see REJECTs (empty cup) — that is expected; you are watching the
-   bucket / shake / count / aim / dump mechanics.
+   camera count, classifier, distributor and cup, no arm (no `/dev/arm` needed).
+   Picks "succeed" instantly, so you will see REJECTs (empty cup) — expected;
+   you are watching the bucket / shake / count / aim / dump mechanics.
 6. `python -m orchestrator.run --manual-pick --max-parts 5` — you move the part
    to the cup when prompted; classification + distribution are real.
-7. `python -m orchestrator.run --max-parts 3` — the arm policy, full cycle.
+7. `python scripts/preview_grasp.py --index <overhead>` — the red line is where
+   the jaws will close. Then `python -m orchestrator.run --max-parts 3` — the IK
+   grasp, full cycle.
 8. `python -m orchestrator.run` — let it drain the bucket.
 
 ## Running
@@ -148,11 +158,10 @@ Each run creates `runs/<YYYYMMDD-HHMMSS>/`:
   | `class` | the label sent to the distributor (`REJECT` when confidence < threshold or label unknown) |
   | `confidence` | classifier confidence (the raw value, even for REJECT) |
   | `bin` | 0–6 |
-  | `pick_attempts` | how many policy attempts this part took |
+  | `pick_attempts` | how many grasp attempts this part took |
   | `cycle_time_s` | from the IMAGE that saw the part to the end of DUMP |
 
-Quick stats: `python - <<'EOF'` … or just open it in a spreadsheet. The summary
-line in `run.log` gives totals per class.
+The summary line in `run.log` gives totals per class.
 
 ## State machine
 
@@ -164,9 +173,11 @@ INIT ─► IMAGE ─┬─ count==0, doses<MAX ─► DOSE ─► SHAKE ─► 
                                                           └─ else ─► SHAKE
 ```
 
-INIT goes to IMAGE first (not straight to DOSE) because the bucket interlock
-requires a zero table count — on an empty table this doses immediately, and on
-a table with leftovers from the last run it picks them first.
+A PICK "fails" when the planner finds no graspable blob, the gripper closed on
+nothing, or the arm is not back at HOME in time. INIT goes to IMAGE first (not
+straight to DOSE) because the bucket interlock requires a zero table count — on
+an empty table this doses immediately, and on a table with leftovers from the
+last run it picks them first.
 
 Interlocks live in `Rig` (hw.py) and raise `InterlockError`:
 
@@ -174,3 +185,21 @@ Interlocks live in `Rig` (hw.py) and raise `InterlockError`:
 * bucket never moves unless the last count was 0 and the arm is at HOME
 * distributor and cup never move while the arm is away from HOME
 * a pick never starts with the shaker ON; a pick that does not end at HOME is a fault
+
+## How the pieces fit (things that bite if changed)
+
+* **Camera ownership.** LeRobot opens the cameras listed in `arm.cameras`, so
+  the orchestrator never opens the overhead itself when the arm is in use; it
+  takes frames from the robot observation (RGB) and converts them to BGR once
+  in `RealRig._frame()`. With `--skip-arm` it opens the overhead directly (BGR).
+  `count_parts` and both classifiers expect BGR; `GeometricGrasper.plan` expects
+  RGB and gets the raw LeRobot frame. Keep it that way.
+* **Pose names.** `autosort/arm.py` calls the drop pose `box_drop`; the
+  orchestrator calls it `drop` and aliases it in `arm.py::legacy_arm_cfg`.
+* **`arm.cameras` keys** must be `top` / `wrist` — those are the only names
+  `autosort/arm.py` registers with LeRobot. One of them must map to `overhead`.
+* **Distributor homing.** The ring must physically sit at bin 0 at start. The
+  servo wraps ~3.26× per ring turn, so the reading alone cannot tell bins apart.
+* **Two bus adapters, two SDKs.** The arm port goes through LeRobot's
+  `FeetechMotorsBus`; the machine port through `scservo_sdk` directly. They
+  must be different devices (`/dev/arm` vs `/dev/machine`).

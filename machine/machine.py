@@ -319,6 +319,8 @@ class Distributor:
         servo_delta = round(ring_delta * self.ratio)
         abs_before = self._tracker.abs
         target_abs = abs_before + servo_delta
+        # goal speed is ~steps/s; allow 2x the nominal travel time (the long way round can be ~13k counts)
+        timeout_s = max(timeout_s, 2.0 + 2.0 * abs(servo_delta) / max(self.speed, 1))
         log.info("aim bin %d: ring Δ%+.0f -> servo Δ%+d", bin_index, ring_delta, servo_delta)
 
         self.bus.goal_step(self.sid, servo_delta)
