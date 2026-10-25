@@ -1,5 +1,13 @@
 # AutoSort
 
+> **Full-machine orchestrator (bucket → vibrating table → arm → cup → distributor):**
+> see [`orchestrator/README.md`](orchestrator/README.md) and [`CALIBRATION.md`](CALIBRATION.md).
+> `python -m orchestrator.run --sim` runs the whole cycle with no hardware.
+> The notes below describe the earlier single-pipeline layout (`autosort/`, `run.py`);
+> its classifier and perception code are reused by the orchestrator. The Arduino
+> serial router (`autosort/router.py`) is retired — the distributor is now servo ID 8
+> on the machine bus (`machine/machine.py`).
+
 Autonomous sorter for small VEX hardware. An **SO-ARM101** picks one piece from a
 pile and drops it into an enclosure; a camera **classifies** it; a **rotating arm**
 turns to the matching bin and lets it fall in. Repeats until the pile is empty.

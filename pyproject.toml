@@ -12,15 +12,30 @@ dependencies = [
     "pyserial",              # rotating-arm (router) controller over serial
 ]
 
+[project.optional-dependencies]
+# the full-machine orchestrator (orchestrator/README.md); pins LeRobot to Henry's version
+orchestrator = [
+    "lerobot[feetech]==0.5.2",
+    "feetech-servo-sdk",     # scservo_sdk: machine bus (bucket / distributor / cup servos)
+    "python-kasa>=0.7",      # Kasa HS103 smart plug (shaker)
+    "onnxruntime-gpu",       # YOLOv8n-cls ONNX classifier
+    "pytest",
+]
+
 [project.scripts]
 autosort = "autosort.pipeline:main"   # `autosort` behaves like `python run.py`
+autosort-orchestrator = "orchestrator.run:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["autosort", "autosort.classification"]
+packages = ["autosort", "autosort.classification", "orchestrator"]
 
 [tool.setuptools.package-data]
 "autosort.classification" = ["*.yaml"]
+"orchestrator" = ["config.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

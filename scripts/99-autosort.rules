@@ -1,0 +1,15 @@
+# AutoSort udev rules — stable names for the two Waveshare Bus Servo Adapters.
+#
+# Both adapters enumerate as the same USB-serial chip, so they are told apart by
+# serial number. Find each one's serial with the adapter plugged in alone:
+#     udevadm info -a -n /dev/ttyACM0 | grep -m1 'ATTRS{serial}'
+# then fill in the two SERIAL_ARM / SERIAL_MACHINE values below and install:
+#     sudo cp scripts/99-autosort.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+#     ls -l /dev/arm /dev/machine
+#
+# If the chip reports no serial (some CH340 clones), fall back to the physical
+# USB port path instead: KERNELS=="1-2.3" style, from the same udevadm output.
+
+SUBSYSTEM=="tty", ATTRS{serial}=="SERIAL_ARM",     SYMLINK+="arm",     MODE="0666"
+SUBSYSTEM=="tty", ATTRS{serial}=="SERIAL_MACHINE", SYMLINK+="machine", MODE="0666"

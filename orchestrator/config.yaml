@@ -1,0 +1,86 @@
+# ============================================================
+#  AutoSort orchestrator — every tunable in one file.
+#  `null` = VERIFY on the hardware before a real run (CALIBRATION.md).
+#  The loader refuses to start a real run while any VERIFY value is null;
+#  --sim / --dry-run work regardless.
+# ============================================================
+
+ports:
+  arm: /dev/arm           # udev symlink (scripts/99-autosort.rules); fallback /dev/ttyACM*
+  machine: /dev/machine
+
+cameras:
+  overhead: 0             # VERIFY: v4l2-ctl --list-devices  (Arducam AR0234, 960x600)
+  wrist: 2                # VERIFY (Innomaker)
+  cup: null               # third camera over the cup, if one is added
+  width: 960
+  height: 600
+  table_roi: [0.05, 0.05, 0.95, 0.95]   # [x0,y0,x1,y1] fraction of the overhead frame = the table
+  # Which camera sees the part sitting in the cup. VERIFY by eye:
+  #   overhead  if the cup is inside the overhead camera's field of view (set cup_roi)
+  #   wrist     if the wrist camera sees the cup with the arm parked at HOME
+  #   cup       a third USB camera (cameras.cup above)
+  classify_camera: overhead
+  cup_roi: [0.70, 0.60, 0.95, 0.95]     # crop of classify_camera that contains the cup
+
+servo:
+  baud: 1000000
+  bucket_id: 7
+  distributor_id: 8
+  cup_id: 9
+
+bucket:                   # ID 7, position mode. Read with: python machine/machine.py where 7
+  rest_pos: null          # VERIFY
+  pour_pos: null          # VERIFY (expect ~45-60 deg = 500-700 counts from rest)
+  dwell_s: 1.5
+
+distributor:              # ID 8, step mode, drives the ring through the pinion
+  ratio: 3.26             # servo turns per ring turn. VERIFY by counting teeth (ring/pinion)
+  bins: 7
+  bin0_servo_pos: null    # VERIFY: servo raw reading with the ring parked at bin 0
+  tolerance_counts: 20
+  settle_s: 0.3
+  max_excursion_turns: 1.5   # software wind-up bound; the ring may go the long way to respect it
+
+cup:                      # ID 9, position mode
+  hold_pos: null          # VERIFY
+  dump_pos: null          # VERIFY
+  dwell_s: 0.8
+
+shaker:                   # Kasa HS103 smart plug; ON/OFF only, knob at ~30%
+  ip: 192.168.1.38
+  user: ${KASA_USER}      # Kasa account login (KLAP). ${VAR} is read from the environment
+  password: ${KASA_PASS}
+  burst_s: 1.0
+
+timing:
+  settle_s: 0.7
+  pick_timeout_s: 25
+  max_doses_per_fill: 3
+  pick_retries: 2
+
+vision:
+  min_part_area: 150      # px^2 on the overhead frame; raise if specks are counted as parts
+  dark_parts: true        # parts darker than the table -> true; bright parts on dark table -> false
+
+classifier:
+  backend: onnx           # onnx (YOLOv8n-cls export) | catalog (autosort/classification measure-and-match)
+  model: models/autosort_cls.onnx
+  labels: [screw, nut, standoff, spacer, collar, other]   # ONNX output order — must match training
+  threshold: 0.85         # confidence below this -> REJECT
+  class_to_bin: {screw: 0, nut: 1, standoff: 2, spacer: 3, collar: 4, other: 5, REJECT: 6}
+  catalog:                # only used when backend: catalog
+    path: autosort/classification/vex_parts.yaml
+    px_per_mm: 12.0
+    max_distance: 1.5
+    min_confidence: 0.35
+
+arm:                      # LeRobot SO-101 follower + ACT policy (Henry's layer, orchestrator/arm.py)
+  id: autosort_follower   # names the LeRobot calibration file
+  device: cuda
+  policy: Henry-Wang0225/gear_act_v2    # HF hub id or local path of the pick-from-table/place-in-cup policy
+  task: "pick one part from the table and place it in the cup"
+  policy_cameras: {wrist: wrist}         # policy observation name -> cameras.* entry (add overhead: overhead if trained with it)
+  home_pose: {shoulder_pan: 0, shoulder_lift: -100, elbow_flex: 100, wrist_flex: 40, wrist_roll: 0, gripper: 50}  # VERIFY from teleop
+  home_tolerance_deg: 6   # "back at HOME" when every joint is within this
+  min_policy_s: 4.0       # don't declare success before the policy has had this long to leave HOME
