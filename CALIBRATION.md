@@ -14,13 +14,25 @@ python machine/machine.py scan          # expect: servos answering on /dev/machi
 
 ## The read loop
 
+Two ways. **Jog** (drive it from the keyboard, works over SSH):
+
+```bash
+python machine/machine.py --port /dev/ttyACM1 jog <ID>
+#   ←/→ (or ↓/↑) nudge by the step   [ / ] halve / double the step   t  torque off to move by hand
+#   SPACE records the current position (printed again on quit)   q  quit
+```
+
+or **by hand** (servo limp, read the encoder):
+
 ```bash
 python machine/machine.py torque <ID> off   # the servo goes limp
 python machine/machine.py where  <ID>       # prints the position ~10x/s; Ctrl-C to stop
 ```
 
-Move the part by hand while `where` runs, stop at the position you want, note
-the number. Positions are 0–4095 per turn (4096 counts = 360°, so 1° ≈ 11.4 counts).
+Stop at the position you want and note the number. Positions are 0–4095 per
+turn (4096 counts = 360°, so 1° ≈ 11.4 counts). Until the udev rule is
+installed pass `--port /dev/ttyACMn` (the port whose `scan` shows `[7, 8, 9]`,
+not the one with `[1..6]` — that is the arm).
 
 **Mind the wrap.** If your two positions straddle 4095→0 (e.g. REST reads 4000
 and POUR reads 600) the servo in position mode will go the long way round.

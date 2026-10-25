@@ -23,6 +23,7 @@ CLI (VERIFY values are read with `where` while moving a torque-off servo by hand
     python machine/machine.py scan
     python machine/machine.py where 8            # live position read (Ctrl-C to stop)
     python machine/machine.py torque 8 off       # free a servo to move it by hand
+    python machine/machine.py jog 7              # arrow keys nudge the servo; SPACE records a position
     python machine/machine.py move 7 1024        # position-mode goal (bucket / cup)
     python machine/machine.py aim 3              # distributor -> bin 3 (homes on first call)
     python machine/machine.py shake 1.0          # one shaker burst
@@ -394,6 +395,90 @@ class Shaker:
             time.sleep(off_s)
 
 
+
+# ===========================================================================
+# Jog — drive a servo from the keyboard to find calibration positions
+# ===========================================================================
+
+KEY_HELP = """\
+  ←/→ or ↓/↑  nudge by the step      [ / ]  step ÷2 / ×2      t  torque off (move by hand) / on
+  SPACE       record this position    h  print this help      q  quit (leaves torque on)"""
+
+
+def read_key(fd) -> str:
+    """One keypress as a short name: left right up down space t q [ ] h, or '' on timeout.
+    Arrow keys arrive as ESC [ A/B/C/D; any other ESC sequence is swallowed."""
+    import os
+    import select
+
+    if not select.select([fd], [], [], 0.1)[0]:
+        return ""
+    ch = os.read(fd, 1)
+    if ch == b"\x1b":
+        seq = b""
+        while select.select([fd], [], [], 0.02)[0]:
+            seq += os.read(fd, 1)
+            if seq[-1:].isalpha() or seq[-1:] == b"~":
+                break
+        return {b"[A": "up", b"[B": "down", b"[C": "right", b"[D": "left"}.get(seq, "")
+    return {b" ": "space", b"q": "q", b"t": "t", b"[": "[", b"]": "]", b"h": "h",
+            b"\x03": "q"}.get(ch, "")
+
+
+def jog(bus: Bus, sid: int, step: int = 20, speed: int = 400) -> list[int]:
+    """Interactive: arrow keys move servo `sid` in position mode. Returns the recorded positions."""
+    import sys
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    bus.set_mode(sid, 0)
+    bus.set_speed(sid, speed)
+    bus.torque(sid, True)
+    goal = bus.position(sid)
+    torque_on = True
+    marks: list[int] = []
+    print(f"jog id {sid}  (position mode, speed {speed})")
+    print(KEY_HELP)
+    try:
+        tty.setcbreak(fd)
+        while True:
+            pos = bus.position(sid)
+            state = "torque ON " if torque_on else "torque OFF"
+            print(f"\r  {state}  pos {pos:4d}  goal {goal:4d}  step {step:3d}   ", end="", flush=True)
+            key = read_key(fd)
+            if key == "q":
+                break
+            if key in ("right", "up", "left", "down"):
+                if not torque_on:
+                    bus.torque(sid, True)
+                    torque_on = True
+                    goal = pos
+                goal += step if key in ("right", "up") else -step
+                goal = max(0, min(RING - 1, goal))
+                bus.goal_position(sid, goal)
+            elif key == "[":
+                step = max(1, step // 2)
+            elif key == "]":
+                step = min(512, step * 2)
+            elif key == "t":
+                torque_on = not torque_on
+                bus.torque(sid, torque_on)
+                if torque_on:
+                    goal = bus.position(sid)
+            elif key == "space":
+                marks.append(pos)
+                print(f"\n  recorded #{len(marks)}: {pos}")
+            elif key == "h":
+                print("\n" + KEY_HELP)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        print()
+    if marks:
+        print("recorded positions:", ", ".join(str(m) for m in marks))
+    return marks
+
 # ===========================================================================
 # CLI
 # ===========================================================================
@@ -410,6 +495,9 @@ def _cli() -> None:
     p = sub.add_parser("where"); p.add_argument("id", type=int)
     p = sub.add_parser("torque"); p.add_argument("id", type=int); p.add_argument("state", choices=["on", "off"])
     p = sub.add_parser("move"); p.add_argument("id", type=int); p.add_argument("pos", type=int)
+    p = sub.add_parser("jog"); p.add_argument("id", type=int)
+    p.add_argument("--step", type=int, default=20, help="counts per keypress (4096 = one turn)")
+    p.add_argument("--speed", type=int, default=400)
     p = sub.add_parser("aim"); p.add_argument("bin", type=int)
     p.add_argument("--bin0", type=int, required=True, help="servo raw position at bin 0 (from CALIBRATION.md)")
     p = sub.add_parser("shake"); p.add_argument("seconds", type=float)
@@ -452,6 +540,8 @@ def _cli() -> None:
             s.setup()
             s.move_to(args.pos)
             print(f"id {args.id} at {s.where()}")
+        elif args.cmd == "jog":
+            jog(bus, args.id, step=args.step, speed=args.speed)
         elif args.cmd == "aim":
             d = Distributor(bus, 8, bin0_servo_pos=args.bin0)
             d.setup()
