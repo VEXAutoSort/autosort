@@ -6,12 +6,16 @@ still differs from bare paper.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
+
+log = logging.getLogger("autosort.classification")
 
 DIFF_THRESHOLD = 20      # grey levels a pixel must differ from the empty stage
 MIN_AREA_PX = 150        # smaller blobs are noise, not pieces
 MIN_HOLE_FRACTION = 0.005  # a hole must be this fraction of the piece to count
+BORDER_MARGIN_PX = 2     # a piece this close to the frame edge may be cut off
 
 
 @dataclass
@@ -32,7 +36,7 @@ class Shape:
                 f"sol {self.solidity:.2f}  holes {self.holes}")
 
 
-def segment(frame, background):
+def segment(frame, background, threshold: int = DIFF_THRESHOLD):
     """Binary mask of whatever is on the stage that was not there before."""
     import cv2
     import numpy as np
@@ -41,7 +45,7 @@ def segment(frame, background):
     if diff.ndim == 3:
         diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
     diff = cv2.GaussianBlur(diff, (5, 5), 0)
-    _, mask = cv2.threshold(diff, DIFF_THRESHOLD, 255, cv2.THRESH_BINARY)
+    _, mask = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)
     kernel = np.ones((3, 3), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -61,6 +65,14 @@ def outline(mask):
     area = cv2.contourArea(contours[i])
     if area < MIN_AREA_PX:
         return None
+
+    x, y, w, h = cv2.boundingRect(contours[i])
+    height, width = mask.shape[:2]
+    m = BORDER_MARGIN_PX
+    if x <= m or y <= m or x + w >= width - m or y + h >= height - m:
+        log.info("piece touches the frame edge — measurement would be truncated")
+        return None
+
     holes = sum(
         1 for j in range(len(contours))
         if hierarchy[0][j][3] == i and cv2.contourArea(contours[j]) >= area * MIN_HOLE_FRACTION

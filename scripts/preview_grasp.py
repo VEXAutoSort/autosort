@@ -10,6 +10,10 @@ Red dot = grasp centroid. Press any key (image) or Esc (live) to quit.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # import autosort/ without installing
+
 import argparse
 
 import cv2

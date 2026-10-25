@@ -46,7 +46,7 @@ arm:
 cameras:
   top:   {index: 1, width: 960, height: 600, fps: 30}
   wrist: {index: 2, width: 640, height: 480, fps: 30}
-  box:   {index: 0, width: 640, height: 480, fps: 30}
+  box:   {index: 0, width: 960, height: 600, fps: 30}      # Arducam B0495, only mode it streams
 
 # --- Perception (classical CV — no training needed) ----------
 perception:
@@ -60,11 +60,14 @@ perception:
 # No training, no weights — add a part by adding a row to the catalog.
 classifier:
   catalog: autosort/classification/vex_parts.yaml
-  labels: [gear, standoff, screw, nut, spacer, unknown]
-  px_per_mm: 12.0                    # MEASURE THIS -> scripts/calibrate_scale.py
+  labels: [gear, standoff, screw, nut, spacer, collar, unknown]
+  px_per_mm: 3.17                    # MEASURE THIS -> scripts/calibrate_scale.py
   max_distance: 1.5                  # nothing in the catalog this close -> 'unknown'
   min_confidence: 0.35               # two labels fit about equally well -> 'unknown'
   settle_s: 0.5                      # wait after the drop before imaging
+  roi: [0.0, 0.0, 1.0, 1.0]          # [x0,y0,x1,y1] fraction of frame holding the stage
+  average_frames: 5                  # average N frames; cuts noise by about sqrt(N)
+  diff_threshold: 60                 # grey levels a pixel must differ from the empty stage
 
 # --- Router — the rotating arm that drops into the bins ------
 router:
@@ -77,4 +80,5 @@ router:
     screw: 120
     nut: 180
     spacer: 240
-    unknown: 300
+    collar: 300
+    unknown: 330          # SET THESE to your mechanism's real positions

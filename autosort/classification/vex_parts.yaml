@@ -63,3 +63,5 @@
 # does not publish the OD. Measure one, fill in LENGTH, and uncomment:
 # - {label: spacer, name: plastic spacer 4.6, length_mm: LENGTH, width_mm: 4.60, holes: 0}
 # - {label: spacer, name: plastic spacer 8.0, length_mm: LENGTH, width_mm: 8.00, holes: 0}
+- {label: gear, name: gear 1, length_mm: 26.06, width_mm: 25.49, extent: 0.78, circularity: 0.72, solidity: 0.95, holes: 0}
+- {label: collar, name: collar 1, length_mm: 20.91, width_mm: 19.25, extent: 0.78, circularity: 0.88, solidity: 0.98, holes: 0}

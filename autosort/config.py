@@ -55,6 +55,9 @@ class ClassifierCfg:
     max_distance: float                # nearest-entry distance above this -> 'unknown'
     min_confidence: float              # margin over the runner-up label below this -> 'unknown'
     settle_s: float
+    roi: list[float] | None = None     # [x0,y0,x1,y1] fraction of the frame holding the stage
+    average_frames: int = 1            # average this many frames to cut sensor noise
+    diff_threshold: int = 20           # grey levels a pixel must differ from the empty stage
 
 
 @dataclass

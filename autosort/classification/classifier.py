@@ -25,7 +25,7 @@ class Classifier:
     def __init__(self, cfg: ClassifierCfg, box_cam: CameraCfg, dry_run: bool = False):
         self.cfg = cfg
         self.dry_run = dry_run
-        self.camera = BoxCamera(box_cam)
+        self.camera = BoxCamera(box_cam, cfg.roi, cfg.average_frames)
         self.catalog: Catalog | None = None
 
     def connect(self) -> None:
@@ -46,7 +46,8 @@ class Classifier:
         return self.identify(self.camera.grab())
 
     def identify(self, frame) -> tuple[str, float]:
-        shape = measure(segment(frame, self.camera.background), self.cfg.px_per_mm)
+        mask = segment(frame, self.camera.background, self.cfg.diff_threshold)
+        shape = measure(mask, self.cfg.px_per_mm)
         if shape is None:
             log.info("stage looks empty")
             return UNKNOWN, 0.0
